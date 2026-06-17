@@ -3,6 +3,7 @@ import sys
 from logger import log, LogLevel, CATEGORIES
 from client import GameClient
 from npcs_data import npc_name
+from items_data import item_name
 
 
 class ConsoleUI:
@@ -47,11 +48,12 @@ class ConsoleUI:
         log.raw("  /login <u> <p>   /select <name>")
         log.raw("  /chat <t>        /move <x> <y>")
         log.raw("  /useitem <t> <w> <i>  /pick <id>")
-        log.raw("  /npcmenu <id>    /menu <opt> [/menu <n> <m> <o>]")
+        log.raw("  /npcmenu <id>    /menu <opt>  (chọn option NPC)")
         log.raw("  /zone <id>       /changemap")
-        log.raw("  /skill <id>      /buy <t> <id> [qty]")
+        log.raw("  /skill <id>      /buy <t> <id> [qty]  (t=0:vàng,1:ngọc)")
         log.raw("  /sale <a> <t> <id>  /task <n> <m> [o]")
-        log.raw("  /players  /info  /map  /npcs  /heal  /gocit  /wake")
+        log.raw("  /players  /info  /map  /npcs  /items  /equip  /pet  /heal  /gocit  /wake")
+        log.raw("  /selectmap <n>  (chọn map khi dùng capsule)")
         log.raw("  /log <cat> on|off|debug   /log list")
         log.raw("  /log all on|off|debug     /quit\n")
 
@@ -98,6 +100,18 @@ class ConsoleUI:
         if cmd == '/info':
             self._show_info()
             return
+        if cmd == '/items':
+            self.client.service.getBag(0)
+            self._show_items()
+            return
+        if cmd == '/equip':
+            self.client.service.getBody(0)
+            self._show_equip()
+            return
+        if cmd == '/pet':
+            self.client.service.petInfo()
+            self._show_pet()
+            return
         if cmd == '/log' or cmd == '/debug':
             self._handle_log(parts)
             return
@@ -120,7 +134,13 @@ class ConsoleUI:
             elif cmd == '/pick' and len(parts) >= 2:
                 c.service.pickItem(int(parts[1]))
             elif cmd == '/npcmenu' and len(parts) >= 2:
-                c.service.openMenu(int(parts[1]))
+                npc_id = int(parts[1])
+                if not any(n['tempId'] == npc_id for n in c.state.npcs):
+                    found = npc_name(npc_id)
+                    log.raw(f"[NPC] {found} (ID={npc_id}) không có ở map này")
+                    log.raw(f"  Dùng /npcs để xem NPC hiện có")
+                else:
+                    c.service.openMenu(npc_id)
             elif cmd == '/menu' and len(parts) == 2:
                 c.service.confirmMenu(c.state.current_npc_id, int(parts[1]))
             elif cmd == '/menu' and len(parts) >= 4:
@@ -145,6 +165,13 @@ class ConsoleUI:
                 c.service.returnTownFromDead()
             elif cmd == '/wake':
                 c.service.wakeUpFromDead()
+            elif cmd == '/selectmap' and len(parts) >= 2:
+                idx = int(parts[1])
+                if 0 <= idx < len(c.state.map_transport_list):
+                    c.service.requestMapSelect(idx)
+                    c.state.map_transport_list.clear()
+                else:
+                    log.raw(f"Chọn từ 0 đến {len(c.state.map_transport_list)-1}")
             else:
                 log.raw(f"Unknown: {cmd}  (/help)")
         except (IndexError, ValueError):
@@ -199,5 +226,84 @@ class ConsoleUI:
         if c:
             for line in c.format().split("\n"):
                 log.raw("  " + line)
+            if s.items_body:
+                worn = [item for item in s.items_body if item]
+                if worn:
+                    log.raw(f"  Equipped: {len(worn)} items")
+            if s.items_bag:
+                count = sum(1 for x in s.items_bag if x)
+                log.raw(f"  Bag: {count} items")
+            if s.pet:
+                log.raw(f"  Pet: {s.pet.get('name', '?')}")
         else:
             log.raw("  (no character data)")
+
+    def _format_item(self, item: dict, index: int = -1) -> str:
+        name = item_name(item['id'])
+        prefix = f"[{index}] " if index >= 0 else ""
+        item_id_str = f"[#{item['id']}] "
+        info = item.get('info', '').strip()
+        if info:
+            lines = info.split('\n')
+            opts_formatted = ("\n" + " " * (len(prefix) + len(item_id_str) + 2)).join(lines)
+            return f"  {prefix}{item_id_str}{name} x{item['quantity']}\n      {opts_formatted}"
+        return f"  {prefix}{item_id_str}{name} x{item['quantity']}"
+
+    def _show_items(self):
+        s = self.client.state
+        items = s.items_bag
+        if not items:
+            log.raw("[Bag] No items (use /getbag to request)")
+            return
+        count = sum(1 for x in items if x)
+        log.raw(f"[Bag] {count} items:")
+        for idx, item in enumerate(items):
+            if item:
+                log.raw(self._format_item(item, idx))
+
+    def _show_equip(self):
+        s = self.client.state
+        items = s.items_body
+        if not items:
+            log.raw("[Equip] No data (use /getbody to request)")
+            return
+        SLOT_NAMES = ["Áo", "Quần", "Găng", "Giày", "Nhẫn", "Cải trang", "Chí bôi", "Vũ khí", "Liễn", "Ngữ"]
+        log.raw("[Equip] Equipped items:")
+        for i, item in enumerate(items):
+            slot_name = SLOT_NAMES[i] if i < len(SLOT_NAMES) else f"Slot{i}"
+            if item:
+                log.raw(f"  [{slot_name}] {self._format_item(item)}")
+            else:
+                log.raw(f"  [{slot_name}] (empty)")
+
+    def _show_pet(self):
+        pet = self.client.state.pet
+        if not pet:
+            log.raw("[Pet] No pet info")
+            return
+        log.raw(f"[Pet] {pet.get('name', '?')} ({pet.get('level_str', '')})")
+        log.raw(f"  HP: {pet.get('hp', 0)}/{pet.get('hpMax', 0)}  MP: {pet.get('mp', 0)}/{pet.get('mpMax', 0)}")
+        log.raw(f"  Damage: {pet.get('damage', 0)}  Defense: {pet.get('def', 0)}  Crit: {pet.get('crit', 0)}%")
+        log.raw(f"  Power: {pet.get('power', 0)}  Potential: {pet.get('potential', 0)}")
+        log.raw(f"  Stamina: {pet.get('stamina', 0)}/{pet.get('staminaMax', 0)}")
+        status_names = {0: "Follow", 1: "Protect", 2: "Attack", 3: "Gohome", 4: "Fusion"}
+        st = pet.get('status', 0)
+        log.raw(f"  Status: {status_names.get(st, st)}")
+        body = pet.get('items_body', [])
+        if body:
+            log.raw(f"  Equipment:")
+            for i, item in enumerate(body):
+                if item:
+                    info = item.get('info', '').strip()
+                    line = f"    [{i}] [#{item['id']}] {item_name(item['id'])} x{item['quantity']}"
+                    if info:
+                        line += f"\n      {info}"
+                    log.raw(line)
+        skills = pet.get('skills', [])
+        if skills:
+            log.raw(f"  Skills:")
+            for sk in skills:
+                if sk.get('id') == -1:
+                    log.raw(f"    [Locked] {sk.get('locked', '')}")
+                else:
+                    log.raw(f"    Skill ID: {sk['id']}")

@@ -50,7 +50,46 @@ class SocialHandler:
 
     def handle_pet_info(self, msg: Message):
         sub = msg.readByte()
-        log.info("PET", f"sub={sub}")
+        if sub == 2:
+            pet = {}
+            pet['avatar'] = msg.readShort()
+            body_count = msg.readUnsignedByte()
+            pet['items_body'] = []
+            for _ in range(body_count):
+                item_id = msg.readShort()
+                if item_id == -1:
+                    pet['items_body'].append(None)
+                    continue
+                item = {'id': item_id, 'quantity': msg.readInt(), 'info': msg.readUTF(), 'content': msg.readUTF()}
+                opt_count = msg.readByte()
+                item['options'] = [{'id': msg.readByte(), 'param': msg.readShort()} for _ in range(opt_count)]
+                pet['items_body'].append(item)
+            pet['hp'] = msg.readInt()
+            pet['hpMax'] = msg.readInt()
+            pet['mp'] = msg.readInt()
+            pet['mpMax'] = msg.readInt()
+            pet['damage'] = msg.readInt()
+            pet['name'] = msg.readUTF()
+            pet['level_str'] = msg.readUTF()
+            pet['power'] = msg.readLong()
+            pet['potential'] = msg.readLong()
+            pet['status'] = msg.readByte()
+            pet['stamina'] = msg.readShort()
+            pet['staminaMax'] = msg.readShort()
+            pet['crit'] = msg.readByte()
+            pet['def'] = msg.readShort()
+            skill_count = msg.readByte()
+            pet['skills'] = []
+            for _ in range(skill_count):
+                skill_id = msg.readShort()
+                if skill_id == -1:
+                    reason = msg.readUTF()
+                    pet['skills'].append({'id': -1, 'locked': reason})
+                else:
+                    pet['skills'].append({'id': skill_id})
+            self.state.pet = pet
+        else:
+            log.info("PET", f"sub={sub}")
 
     def handle_pet_status(self, msg: Message):
         status = msg.readByte()
@@ -105,7 +144,17 @@ class SocialHandler:
 
     def handle_map_transport(self, msg: Message):
         count = msg.readByte()
-        log.info("TRANSPORT", f"({count} maps)")
+        names = []
+        planets = []
+        for _ in range(count):
+            names.append(msg.readUTF())
+            planets.append(msg.readUTF())
+        self.state.map_transport_list = names
+        log.raw(f"[Teleport] Chọn map để dịch chuyển ({count} maps):")
+        for i, name in enumerate(names):
+            planet = planets[i] if planets[i] else ""
+            log.raw(f"  [{i}] {name} {planet}")
+        log.raw("Dùng /selectmap <số> để chọn")
 
     def handle_item_time(self, msg: Message):
         if msg.available() < 1:

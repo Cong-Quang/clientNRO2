@@ -1,6 +1,7 @@
 from logger import log
 from network import Message
 from state import GameState
+from items_data import item_name
 
 
 class InteractionHandler:
@@ -47,8 +48,51 @@ class InteractionHandler:
         log.info("TASK", f"npc={npc_id} menu={menu_id} opt={option_id}")
 
     def handle_shop(self, msg: Message):
-        action = msg.readByte()
-        log.info("SHOP", f"action={action} size={msg.available()}")
+        shop_type = msg.readByte()
+        tab_count = msg.readUnsignedByte()
+        log.raw(f"[SHOP] type={shop_type} tabs={tab_count}")
+        for t in range(tab_count):
+            tab_name = msg.readUTF()
+            item_count = msg.readUnsignedByte()
+            log.raw(f"  [{t}] {tab_name} ({item_count} items)")
+            for _ in range(item_count):
+                item_id = msg.readShort()
+                if item_id == -1:
+                    continue
+                if shop_type == 0:
+                    coin = msg.readInt(); gold = msg.readInt()
+                    price = f"Vàng:{coin}" if coin else f"Ngọc:{gold}"
+                elif shop_type == 1:
+                    power = msg.readLong()
+                    price = f"Tiềm năng:{power}"
+                elif shop_type == 2:
+                    sid = msg.readShort(); coin = msg.readInt()
+                    gold = msg.readInt(); bt = msg.readByte()
+                    qty = msg.readInt(); msg.readByte()
+                    price = f"Vàng:{coin} Ngọc:{gold} x{qty}"
+                elif shop_type == 3:
+                    icon = msg.readShort(); cost = msg.readInt()
+                    price = f"vật phẩm({icon})x{cost}"
+                elif shop_type == 4:
+                    reason = msg.readUTF()
+                    price = f"| {reason}"
+                elif shop_type == 8:
+                    coin = msg.readInt(); gold = msg.readInt(); qty = msg.readInt()
+                    price = f"Vàng:{coin} Ngọc:{gold} x{qty}"
+                else:
+                    price = "?"
+                opt_count = msg.readByte()
+                for _ in range(opt_count):
+                    msg.readByte()
+                    msg.readShort()
+                is_new = msg.readByte()
+                has_part = msg.readByte()
+                if has_part:
+                    msg.readShort()
+                    msg.readShort()
+                    msg.readShort()
+                    msg.readShort()
+                log.raw(f"    [{item_id}] {item_name(item_id)} - {price}")
 
     def handle_skill_not_focus(self, msg: Message):
         status = msg.readByte()
@@ -74,17 +118,56 @@ class InteractionHandler:
         id_ = msg.readByte()
         log.info("ITEM", f"Get type={type_} id={id_}")
 
+    def _parse_items(self, msg: Message, count: int) -> list[dict | None]:
+        items = []
+        for _ in range(count):
+            item_id = msg.readShort()
+            if item_id == -1:
+                items.append(None)
+                continue
+            item = {
+                'id': item_id,
+                'quantity': msg.readInt(),
+                'info': msg.readUTF(),
+                'content': msg.readUTF(),
+            }
+            opt_count = msg.readByte()
+            item['options'] = []
+            for _ in range(opt_count):
+                item['options'].append({
+                    'id': msg.readByte(),
+                    'param': msg.readShort(),
+                })
+            items.append(item)
+        return items
+
     def handle_body(self, msg: Message):
         action = msg.readByte()
-        log.info("BODY", f"action={action}")
+        if action == 0:
+            head = msg.readShort()
+            count = msg.readUnsignedByte()
+            self.state.items_body = self._parse_items(msg, count)
+            log.info("BODY", f"Loaded {count} body items, head={head}")
+        else:
+            log.info("BODY", f"action={action}")
 
     def handle_bag(self, msg: Message):
         action = msg.readByte()
-        log.info("BAG", f"action={action}")
+        if action == 0:
+            count = msg.readUnsignedByte()
+            self.state.items_bag = self._parse_items(msg, count)
+            log.info("BAG", f"Loaded {count} bag items")
+        else:
+            log.info("BAG", f"action={action}")
 
     def handle_box(self, msg: Message):
         action = msg.readByte()
-        log.info("BOX", f"action={action}")
+        if action == 0:
+            count = msg.readUnsignedByte()
+            self.state.items_box = self._parse_items(msg, count)
+            log.info("BOX", f"Loaded {count} box items")
+        else:
+            log.info("BOX", f"action={action}")
 
     def handle_upgrade(self, msg: Message):
         action = msg.readByte()
@@ -95,7 +178,7 @@ class InteractionHandler:
         log.info("UI", f"Zone list ({count} zones)")
 
     def handle_open_ui_shop(self, msg: Message):
-        log.debug("UI", "Opening shop...")
+        log.raw("[SHOP] Opening shop interface...")
 
     def handle_open_ui_collect(self, msg: Message):
         log.debug("UI", "Opening collection...")
@@ -108,6 +191,13 @@ class InteractionHandler:
 
     def handle_open_ui_say(self, msg: Message):
         log.debug("UI", "Opening chat input...")
+
+    def handle_hide_wait_dialog(self, msg: Message):
+        type_ = msg.readByte()
+        if type_ == -1:
+            log.raw("[NPC] Không có NPC nào ở đây")
+        else:
+            log.info("NPC", f"Enemy list type={type_}, size={msg.available()}")
 
     def handle_npc_miss(self, msg: Message):
         npc_id = msg.readByte()

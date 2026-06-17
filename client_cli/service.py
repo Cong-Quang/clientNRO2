@@ -276,6 +276,11 @@ class Service:
         msg = Message(C.CMD_CHECK_MAP)
         self._send(msg)
 
+    def requestMapSelect(self, index: int):
+        msg = Message(C.CMD_MAP_TRASPORT)
+        msg.writeByte(index)
+        self._send(msg)
+
     def gotoPlayer(self, playerId: int):
         msg = Message(18)
         msg.writeInt(playerId)

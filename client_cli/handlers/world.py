@@ -217,7 +217,40 @@ class WorldHandler:
                 self.state.my_char.xu = gold
                 self.state.my_char.luong = gem
                 self.state.my_char.luongKhoa = ruby
-            log.info("SUB", f"Loaded: pid={pid} name={chname} gold={gold} gem={gem}")
+            body_count = msg.readByte()
+            self.state.items_body = []
+            for _ in range(body_count):
+                item_id = msg.readShort()
+                if item_id == -1:
+                    self.state.items_body.append(None)
+                    continue
+                item = {'id': item_id, 'quantity': msg.readInt(), 'info': msg.readUTF(), 'content': msg.readUTF()}
+                opt_count = msg.readByte()
+                item['options'] = [{'id': msg.readByte(), 'param': msg.readShort()} for _ in range(opt_count)]
+                self.state.items_body.append(item)
+            bag_count = msg.readByte()
+            self.state.items_bag = []
+            for _ in range(bag_count):
+                item_id = msg.readShort()
+                if item_id == -1:
+                    self.state.items_bag.append(None)
+                    continue
+                item = {'id': item_id, 'quantity': msg.readInt(), 'info': msg.readUTF(), 'content': msg.readUTF()}
+                opt_count = msg.readByte()
+                item['options'] = [{'id': msg.readByte(), 'param': msg.readShort()} for _ in range(opt_count)]
+                self.state.items_bag.append(item)
+            box_count = msg.readByte()
+            self.state.items_box = []
+            for _ in range(box_count):
+                item_id = msg.readShort()
+                if item_id == -1:
+                    self.state.items_box.append(None)
+                    continue
+                item = {'id': item_id, 'quantity': msg.readInt(), 'info': msg.readUTF(), 'content': msg.readUTF()}
+                opt_count = msg.readByte()
+                item['options'] = [{'id': msg.readByte(), 'param': msg.readShort()} for _ in range(opt_count)]
+                self.state.items_box.append(item)
+            log.info("SUB", f"Loaded: pid={pid} name={chname} gold={gold} gem={gem} body={body_count} bag={bag_count} box={box_count}")
         elif sub == C.SUB_ME_LOAD_CLASS:
             log.info("SUB", "Loading class...")
         elif sub == C.SUB_ME_LOAD_SKILL:

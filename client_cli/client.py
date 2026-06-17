@@ -151,6 +151,7 @@ class GameClient(MessageHandler):
             C.CMD_ME_LOAD_POINT: self.world_handler.handle_me_load_point,
             C.CMD_USE_ITEM: self.interaction_handler.handle_use_item,
             C.CMD_SHOP: self.interaction_handler.handle_shop,
+            C.CMD_HIDE_WAIT_DIALOG: self.interaction_handler.handle_hide_wait_dialog,
             C.CMD_SKILL_NOT_FOCUS: self.interaction_handler.handle_skill_not_focus,
             C.CMD_GET_ITEM: self.interaction_handler.handle_get_item,
             C.CMD_FINISH_LOADMAP: self.world_handler.handle_finish_loadmap,

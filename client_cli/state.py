@@ -16,6 +16,11 @@ class GameState:
         self.my_char = None
         self.current_npc_id = 0
         self.current_menu_index = 0
+        self.items_bag: list[dict | None] = []
+        self.items_body: list[dict | None] = []
+        self.items_box: list[dict | None] = []
+        self.pet: dict | None = None
+        self.map_transport_list: list[str] = []
 
     def add_player(self, pid: int, data: dict):
         self.players[pid] = data
