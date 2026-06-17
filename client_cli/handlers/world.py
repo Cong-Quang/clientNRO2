@@ -24,16 +24,21 @@ class WorldHandler:
         msg.readShort()
         msg.readShort()
 
-        # skip waypoints
+        # parse waypoints
         wp_count = msg.readUnsignedByte()
+        self.state.waypoints = []
         for _ in range(wp_count):
-            msg.readShort()
-            msg.readShort()
-            msg.readShort()
-            msg.readShort()
-            msg.readBoolean()
-            msg.readBoolean()
-            msg.readUTF()
+            minX = msg.readShort()
+            minY = msg.readShort()
+            maxX = msg.readShort()
+            maxY = msg.readShort()
+            isOffline = msg.readBoolean()
+            isEnter = msg.readBoolean()
+            popupName = msg.readUTF()
+            self.state.waypoints.append({
+                'minX': minX, 'minY': minY, 'maxX': maxX, 'maxY': maxY,
+                'isOffline': isOffline, 'isEnter': isEnter, 'popupName': popupName,
+            })
 
         # skip mobs
         mob_count = msg.readUnsignedByte()
@@ -71,6 +76,8 @@ class WorldHandler:
         self.state.current_npc_id = 0
         log.info("MAP", f"{self.state.map_name}({self.state.map_id}) zone={self.state.zone_id} npcs={npc_count}")
         log.show_status(f"Map:{self.state.map_id} Z:{self.state.zone_id} Players:{len(self.state.players)}")
+        if self.state.xmap_runner:
+            self.state.xmap_runner.on_map_changed(self.state.map_id)
         if self.service:
             self.service.finishLoadMap()
             self.service.finishUpdate()

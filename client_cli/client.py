@@ -30,6 +30,25 @@ class GameClient(MessageHandler):
         self.social_handler = SocialHandler(self.state)
 
         self._dispatcher = self._build_dispatcher()
+        self._xmap_updater_running = False
+        self._start_xmap_updater()
+
+    def _start_xmap_updater(self):
+        def _loop():
+            import time
+            while self._xmap_updater_running:
+                try:
+                    if self.state.xmap_runner and self.state.xmap_runner.is_running():
+                        from logger import log
+                        st = self.state.xmap_runner.status
+                        log.show_status(st[:50] if st else "xmap...")
+                except Exception:
+                    pass
+                time.sleep(0.5)
+        self._xmap_updater_running = True
+        import threading
+        t = threading.Thread(target=_loop, daemon=True)
+        t.start()
 
     def _build_dispatcher(self):
         return {

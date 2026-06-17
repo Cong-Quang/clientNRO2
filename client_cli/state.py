@@ -21,6 +21,8 @@ class GameState:
         self.items_box: list[dict | None] = []
         self.pet: dict | None = None
         self.map_transport_list: list[str] = []
+        self.waypoints: list[dict] = []
+        self.xmap_runner = None
 
     def add_player(self, pid: int, data: dict):
         self.players[pid] = data
@@ -39,6 +41,11 @@ class GameState:
     def clear(self):
         self.players.clear()
         self.mobs.clear()
+        self.waypoints = []
+
+    def set_map(self, map_id: int, zone_id: int):
+        self.map_id = map_id
+        self.zone_id = zone_id
 
     def set_map(self, map_id: int, zone_id: int):
         self.map_id = map_id

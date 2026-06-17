@@ -54,14 +54,22 @@ class ConsoleUI:
         log.raw("  /sale <a> <t> <id>  /task <n> <m> [o]")
         log.raw("  /players  /info  /map  /npcs  /items  /equip  /pet  /heal  /gocit  /wake")
         log.raw("  /selectmap <n>  (chọn map khi dùng capsule)")
+        log.raw("  /xmap <mapId>   /xmapstop   /xmapmenu   /xmapsettings")
         log.raw("  /log <cat> on|off|debug   /log list")
         log.raw("  /log all on|off|debug     /quit\n")
 
     def _input_loop(self):
         while self.client.session.isConnected():
             try:
-                npc_id = self.client.state.current_npc_id
-                prompt = f"npc({npc_id})> " if npc_id else "> "
+                s = self.client.state
+                npc_id = s.current_npc_id
+                if s.xmap_runner and s.xmap_runner.is_running():
+                    st = s.xmap_runner.status
+                    prompt = f"xmap({st})> " if st else "xmap> "
+                elif npc_id:
+                    prompt = f"npc({npc_id})> "
+                else:
+                    prompt = "> "
                 line = input(prompt).strip()
                 if not line:
                     continue
@@ -114,6 +122,39 @@ class ConsoleUI:
             return
         if cmd == '/log' or cmd == '/debug':
             self._handle_log(parts)
+            return
+        if cmd == '/xmap' and len(parts) >= 2:
+            from xmap_runner import XmapRunner
+            cl = self.client
+            target = int(parts[1])
+            if cl.state.xmap_runner is None:
+                cl.state.xmap_runner = XmapRunner(cl.state, cl.service)
+            if cl.state.xmap_runner.is_running():
+                log.raw(f"Xmap đang chạy, dùng /xmapstop để dừng")
+                return
+            cl.state.xmap_runner.start(target)
+            log.raw(f"Xmap: bắt đầu đi đến map {target}")
+            return
+        if cmd == '/xmapstop':
+            if self.client.state.xmap_runner:
+                self.client.state.xmap_runner.stop()
+            log.raw("Xmap: đã dừng")
+            return
+        if cmd == '/xmapmenu':
+            from xmap_data import PLANETS
+            log.raw("Chọn hành tinh (dùng /xmap <id> trực tiếp hoặc xem danh sách):")
+            for name, maps in PLANETS.items():
+                ids = ', '.join(str(m) for m in maps)
+                log.raw(f"  {name}: {ids}")
+            return
+        if cmd == '/xmapsettings':
+            r = self.client.state.xmap_runner
+            if r:
+                r.eat_chicken = not r.eat_chicken
+                r.use_capsule = not r.use_capsule if len(parts) > 1 and parts[1] == 'capsule' else r.use_capsule
+                log.raw(f"Ăn đùi gà: {'ON' if r.eat_chicken else 'OFF'} | Capsule: {'ON' if r.use_capsule else 'OFF'}")
+            else:
+                log.raw("Xmap chưa được khởi tạo, dùng /xmap <id> trước")
             return
         if cmd == '/help':
             self._print_help()

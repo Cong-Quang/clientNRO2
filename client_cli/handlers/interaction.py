@@ -23,10 +23,16 @@ class InteractionHandler:
         npc_say = msg.readUTF()
         count = msg.readByte()
         self.state.current_npc_id = npc_id
-        log.raw(f"[NPC] {npc_say}")
+        options = []
         for i in range(count):
             text = msg.readUTF()
-            log.raw(f"  [{i}] {text}")
+            options.append(text)
+        log_lines = [f"[NPC] {npc_say}"]
+        for i, text in enumerate(options):
+            log_lines.append(f"  [{i}] {text}")
+        log.raw("\n".join(log_lines))
+        if self.state.xmap_runner and self.state.xmap_runner.is_running():
+            self.state.xmap_runner.on_npc_dialog(npc_id, options)
 
     def handle_npc_menu(self, msg: Message):
         npc_id = msg.readUnsignedShort()
