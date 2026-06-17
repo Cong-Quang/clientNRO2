@@ -8,7 +8,14 @@ class GameState:
         self.npcs: list[dict] = []
         self.map_id = -1
         self.zone_id = -1
+        self.planet_id = 0
+        self.tile_id = 0
+        self.bg_id = 0
+        self.map_type = 0
+        self.map_name = ''
         self.my_char = None
+        self.current_npc_id = 0
+        self.current_menu_index = 0
 
     def add_player(self, pid: int, data: dict):
         self.players[pid] = data

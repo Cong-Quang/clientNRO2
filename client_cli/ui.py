@@ -2,6 +2,7 @@ import time
 import sys
 from logger import log, LogLevel, CATEGORIES
 from client import GameClient
+from npcs_data import npc_name
 
 
 class ConsoleUI:
@@ -46,18 +47,20 @@ class ConsoleUI:
         log.raw("  /login <u> <p>   /select <name>")
         log.raw("  /chat <t>        /move <x> <y>")
         log.raw("  /useitem <t> <w> <i>  /pick <id>")
-        log.raw("  /npcmenu<id>     /menu <n> <m> <o>")
+        log.raw("  /npcmenu <id>    /menu <opt> [/menu <n> <m> <o>]")
         log.raw("  /zone <id>       /changemap")
         log.raw("  /skill <id>      /buy <t> <id> [qty]")
         log.raw("  /sale <a> <t> <id>  /task <n> <m> [o]")
-        log.raw("  /players  /info  /heal  /gocit  /wake")
+        log.raw("  /players  /info  /map  /npcs  /heal  /gocit  /wake")
         log.raw("  /log <cat> on|off|debug   /log list")
         log.raw("  /log all on|off|debug     /quit\n")
 
     def _input_loop(self):
         while self.client.session.isConnected():
             try:
-                line = input("> ").strip()
+                npc_id = self.client.state.current_npc_id
+                prompt = f"npc({npc_id})> " if npc_id else "> "
+                line = input(prompt).strip()
                 if not line:
                     continue
                 self._handle_input(line)
@@ -72,6 +75,10 @@ class ConsoleUI:
 
     def _handle_input(self, line: str):
         if not line.startswith('/'):
+            if self.client.state.current_npc_id and line.isdigit():
+                self.client.service.confirmMenu(self.client.state.current_npc_id, int(line))
+                self.client.state.current_npc_id = 0
+                return
             self._chat(line)
             return
         parts = line.split()
@@ -79,6 +86,12 @@ class ConsoleUI:
 
         if cmd == '/quit':
             raise EOFError
+        if cmd == '/map':
+            self._show_map()
+            return
+        if cmd == '/npcs':
+            self._show_npcs()
+            return
         if cmd == '/players':
             self._show_players()
             return
@@ -108,6 +121,8 @@ class ConsoleUI:
                 c.service.pickItem(int(parts[1]))
             elif cmd == '/npcmenu' and len(parts) >= 2:
                 c.service.openMenu(int(parts[1]))
+            elif cmd == '/menu' and len(parts) == 2:
+                c.service.confirmMenu(c.state.current_npc_id, int(parts[1]))
             elif cmd == '/menu' and len(parts) >= 4:
                 c.service.menu(int(parts[1]), int(parts[2]), int(parts[3]))
             elif cmd == '/zone' and len(parts) >= 2:
@@ -163,6 +178,15 @@ class ConsoleUI:
             self.client.service.chat(text)
         else:
             log.raw("Not in game yet")
+
+    def _show_map(self):
+        s = self.client.state
+        log.raw(f"Map: {s.map_name} (ID={s.map_id})  Zone: {s.zone_id}")
+
+    def _show_npcs(self):
+        for n in self.client.state.npcs:
+            name = npc_name(n['tempId'])
+            log.raw(f"  {name} (ID={n['tempId']}) at ({n['x']},{n['y']})")
 
     def _show_players(self):
         for pid, p in self.client.state.players.items():

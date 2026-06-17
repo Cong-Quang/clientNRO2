@@ -19,8 +19,10 @@ class InteractionHandler:
 
     def handle_confirm(self, msg: Message):
         npc_id = msg.readShort()
+        npc_say = msg.readUTF()
         count = msg.readByte()
-        log.info("CONFIRM", f"NPC {npc_id}: {count} options")
+        self.state.current_npc_id = npc_id
+        log.raw(f"[NPC] {npc_say}")
         for i in range(count):
             text = msg.readUTF()
             log.raw(f"  [{i}] {text}")

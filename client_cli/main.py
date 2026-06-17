@@ -29,6 +29,7 @@ def main():
     args = parser.parse_args()
 
     log.auto_config()
+    log._log_enabled = False
     atexit.register(_cleanup)
 
     client = GameClient(args.host, args.port)

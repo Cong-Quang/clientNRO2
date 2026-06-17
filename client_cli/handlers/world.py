@@ -12,8 +12,64 @@ class WorldHandler:
 
     def handle_map_info(self, msg: Message):
         self.state.map_id = msg.readUnsignedByte()
+        self.state.planet_id = msg.readByte()
+        self.state.tile_id = msg.readByte()
+        self.state.bg_id = msg.readByte()
+        self.state.map_type = msg.readByte()
+        self.state.map_name = msg.readUTF()
         self.state.zone_id = msg.readByte()
-        log.info("MAP", f"mapId={self.state.map_id} zoneId={self.state.zone_id}")
+        self.state.current_npc_id = 0
+
+        # skip player pos
+        msg.readShort()
+        msg.readShort()
+
+        # skip waypoints
+        wp_count = msg.readUnsignedByte()
+        for _ in range(wp_count):
+            msg.readShort()
+            msg.readShort()
+            msg.readShort()
+            msg.readShort()
+            msg.readBoolean()
+            msg.readBoolean()
+            msg.readUTF()
+
+        # skip mobs
+        mob_count = msg.readUnsignedByte()
+        for _ in range(mob_count):
+            for _ in range(5):
+                msg.readBoolean()
+            msg.readByte()
+            msg.readByte()
+            msg.readInt()
+            msg.readByte()
+            msg.readInt()
+            msg.readShort()
+            msg.readShort()
+            msg.readByte()
+            msg.readByte()
+            msg.readBoolean()
+
+        msg.readByte()  # separator
+
+        # parse NPCs
+        npc_count = msg.readUnsignedByte()
+        self.state.npcs.clear()
+        for _ in range(npc_count):
+            status = msg.readByte()
+            cx = msg.readShort()
+            cy = msg.readShort()
+            temp_id = msg.readByte()
+            avatar = msg.readShort()
+            self.state.npcs.append({
+                'tempId': temp_id, 'status': status,
+                'x': cx, 'y': cy, 'avatar': avatar,
+            })
+
+        # skip items, bg items, eff items, remaining bytes
+        self.state.current_npc_id = 0
+        log.info("MAP", f"{self.state.map_name}({self.state.map_id}) zone={self.state.zone_id} npcs={npc_count}")
         log.show_status(f"Map:{self.state.map_id} Z:{self.state.zone_id} Players:{len(self.state.players)}")
         if self.service:
             self.service.finishLoadMap()

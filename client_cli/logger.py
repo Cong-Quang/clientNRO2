@@ -79,6 +79,7 @@ class Logger:
     def __init__(self):
         self._levels = {cat: LogLevel.INFO for cat in CATEGORIES}
         self._enabled = True
+        self._log_enabled = True
         self._compact = False
         self._use_color = False
         self._width = 80
@@ -123,13 +124,13 @@ class Logger:
         return self._levels.get(category, LogLevel.INFO)
 
     def toggle(self):
-        self._enabled = not self._enabled
+        self._log_enabled = not self._log_enabled
 
     def status_text(self):
         return self._last_status
 
     def _write(self, level, tag, msg):
-        if not self._enabled:
+        if not self._log_enabled:
             return
         cat = TAG_TO_CAT.get(tag, 'general')
         if level > self._levels.get(cat, LogLevel.INFO):
@@ -176,11 +177,10 @@ class Logger:
         self._write(LogLevel.ERROR, 'ERROR', msg)
 
     def raw(self, msg):
-        if self._enabled:
-            if self._status_dirty:
-                self._safe_print('\r' + ' ' * self._width + '\r', end='')
-                self._status_dirty = False
-            self._safe_print(msg)
+        if self._status_dirty:
+            self._safe_print('\r' + ' ' * self._width + '\r', end='')
+            self._status_dirty = False
+        self._safe_print(msg)
 
     def show_status(self, text):
         if not self._enabled:

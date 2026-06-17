@@ -1,49 +1,75 @@
 # Memory - NRO CLI Client
 
-## Current State
+## Session 2 - NPC interaction, gold, name fix
 
-### Hoàn thành
-- Auto-login flow: kết nối → setClientType → login → auto-select char → clientOk + updateMap/Skill/Item → finishLoadMap/Update
-- `handle_me_load_point`: parse đúng 54 bytes theo Java server (7×Int + 4×Byte + 2×Int + 1×Byte + 1×Long + 1×Short + 1×Short + 1×Byte)
-- `handle_player_add`: parse đúng theo Java server (clanID, level, boolean, typePk, gender×2, head, name(UTF), hp, hpMax, body, leg, bag, -1, x, y, effbuffhp/mp, numeff, idMark, monkey, mount, cFlag, 0, aura, effFront, hat)
-- `handle_sub_command` SUB_ME_LOAD_ALL (sub=0): parse gold/gem/ruby từ initial load packet
-- `handle_sub_command` SUB_ME_LOAD_INFO (sub=4): parse gold/gem/hp/mp/ruby
-- `handle_send_money` (cmd=6): parse gold/gem/ruby khi có thay đổi
-- `Char.py`: class lưu stats (HP/MP/Damage/Def/Crit/Speed/Potential/Gold/Gem), có format() với _fmt()
-- Number formatting: k (nghìn), m (triệu), b (tỷ) — tự động
-- `/info` command: hiển thị đầy đủ thông tin nhân vật
-- Logger xử lý Unicode an toàn (safe_print fallback)
+### Các thay đổi
 
-### Cách fix vàng không hiển thị
+**handlers/world.py**
+- `handle_player_add`: thêm `c.cName = name` trong `if` branch (không chỉ `elif`) vì `handle_me_load_point` tạo `my_char` trước với name rỗng
+- Fix so sánh name: dùng `name.endswith(my_name)` để bỏ qua clan prefix (`$ClanName`)
+- `SUB_ME_LOAD_ALL` (sub=0): parse gold/gem/ruby từ initial load packet
+- `SUB_ME_LOAD_INFO` (sub=4): parse gold/gem/hp/mp/ruby với try readLong fallback readInt
+- `handle_send_money` (cmd=6): handler mới cho gold update trong game
 
-**Vấn đề:** Gold/Gem luôn hiển thị 0 dù server gửi dữ liệu.
+**handlers/authentication.py**
+- `handle_not_map` sub=CMD_SELECT_PLAYER: tạo `my_char` với `cName` từ response
+- Bỏ debug log
 
-**Nguyên nhân:**
-1. Server gửi gold qua SUB_ME_LOAD_ALL (sub=0) trong `Service.player()`, không phải SUB_ME_LOAD_INFO (sub=4)
-2. Handler SUB_ME_LOAD_ALL cũ chỉ ghi log "Loading all data..." mà không parse dữ liệu
-3. Handler SUB_ME_LOAD_INFO (sub=4) đã viết đúng nhưng server không gửi sub=4 trong initial load
+**handlers/interaction.py**
+- `handle_confirm`: đọc `readUTF` (NPC dialogue) trước khi đọc option count, hiển thị dialogue + options
+- Lưu `state.current_npc_id` khi nhận menu
 
-**Fix:**
-1. Parse gold từ SUB_ME_LOAD_ALL (sub=0):
-   - readInt(id) → readByte(taskId) → readByte(gender) → readShort(head) → readUTF(name) → readByte(cPk) → readByte(typePk) → readLong(power) → readShort×2(reserved) → readByte(gender2) → readByte(skillCount) → readShort×skillCount → try readLong/readInt(gold) → readInt(ruby) → readInt(gem)
-2. Thêm handler `handle_send_money` cho cmd=6:
-   - try readLong/readInt(gold) → readInt(gem) → readInt(ruby)
-   - Java server chỉ dùng cmd=6 cho sendMoney (theo C# Controller.cs), dù cmd=6 cũng là UPDATE_MAP
+**service.py**
+- `openMenu(npcId)`: sửa thành `cmd=33 + writeShort(npcId)` — khớp C# client (trước gửi sai notMap+27)
+
+**state.py**
+- Thêm `current_npc_id`, `current_menu_index`
+
+**ui.py**
+- `/menu <opt>`: chọn option từ NPC dialog (dùng `confirmMenu` với `current_npc_id`)
+- Giữ `/menu <n> <m> <o>` cho menu đặc biệt
+- Sửa help text
+
+**logger.py**
+- Tách `_log_enabled` khỏi `_enabled`: `raw()` luôn chạy, chỉ log (info/debug/warn/error) bị tắt
+- `_safe_print()`: fallback UTF-8 khi console không hiển thị được Unicode
+
+**main.py**
+- Thêm `atexit.register(_cleanup)` — tự động xóa `__pycache__` khi thoát
+- Tắt log bằng `log._log_enabled = False`
+
+**.gitignore**
+- Python cache, IDE, OS files, test scripts
+
+### NPC Interaction Flow
+1. `/npcmenu <templateId>` → gửi `cmd=33 + short(templateId)`
+2. Server lookup NPC theo templateId trong zone, gọi `openBaseMenu()`
+3. Server trả `cmd=32` (CONFIRM) với: `short(tempId) + UTF(dialogue) + byte(count) + UTF[](options)`
+4. Client hiển thị dialogue + options
+5. `/menu <n>` → gửi `cmd=32 + short(tempId) + byte(select)` — dùng `current_npc_id` (tempId) đã lưu
+6. Server xử lý select, trả submenu mới (lại cmd=32) hoặc mở shop (cmd=-46) hoặc kết thúc
+
+### /map command
+- `/map` → hiển thị tên map + ID + zone
+- `handle_map_info` parse thêm: planetId, tileId, bgId, mapType, mapName (UTF)
+
+### /npcs command
+- `/npcs` → liệt kê NPC trong map kèm tên, tempId, tọa độ
+- `npcs_data.py`: lookup table NPC template ID → tên tiếng Việt (từ SQL dump database team2026.sql)
+- `handle_map_info` parse NPC section từ map info packet (sau mobs, trước items)
 
 ### Vấn đề còn lại
-- Name hiển thị có clan prefix (`$Đệ tử`) — do server gửi `Service.gI().name()` có thêm `[$CLAN]`
-- Console Windows (cp1252) không hiển thị được ký tự Unicode như Đ, ệ, ư → đã xử lý fallback an toàn
-- Chưa xử lý inventory, skill, NPC interaction
+- Console Windows cp1252 không hiển thị được Vietnamese Unicode → đã fallback an toàn
+- Chưa xử lý inventory, skill list, NPC shop UI
 
-### Server Test
-- Host: 127.0.0.1:14445
-- Account: tk=1, mk=1
-- Version string: "2.4.5" → server parse thành 245 → dùng writeLong cho gold
-
-### Files chính
+### Relevant Files
 - `handlers/world.py`: ME_LOAD_POINT, PLAYER_ADD, SUB_COMMAND, sendMoney
-- `handlers/authentication.py`: char_list, not_map (select/enter game)
+- `handlers/authentication.py`: char_list, not_map
+- `handlers/interaction.py`: confirm (NPC menu display), menu handlers
+- `state.py`: GameState (players, npcs, my_char, current_npc_id)
 - `Char.py`: Character class + _fmt number formatting
-- `logger.py`: Unicode-safe print
-- `client.py`: Dispatcher mapping
-- `cmd.py`: Command constants
+- `logger.py`: Unicode-safe print, separate log/raw flags
+- `service.py`: openMenu (fix), confirmMenu, menu
+- `ui.py`: /npcmenu, /menu commands
+- `client.py`: dispatcher mapping
+- `cmd.py`: command constants
