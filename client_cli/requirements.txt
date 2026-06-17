@@ -1,0 +1,2 @@
+# NRO CLI Client - no external dependencies required
+# Uses only Python standard library (socket, struct, threading, time, sys, argparse)
