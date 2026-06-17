@@ -208,5 +208,48 @@ byte: selectedIndex
       +giáp 500
   [1] [#6] Quần vải đen x1
       +HP 5000
+```
 
+## Session 5 - Xmap fixes (waypoint matching, teleport panel, zone-change loop)
 
+### Các bugs đã fix
+
+**Bug 1: isEnter/isOffline SWAPPED trong world.py**
+- C# đọc `Waypoint(minX, minY, maxX, maxY, isEnter, isOffline, name)`
+- Python cũ đọc `isOffline` trước, `isEnter` sau → SAI! Đã sửa
+
+**Bug 2: Waypoint không match bằng popup name**
+- C# `GetWayPoint()` match waypoint bằng popup name (tên map đích)
+- Python cũ chỉ dùng vị trí (left/right/center) → sai trên map có nhiều waypoint
+- Fix: thêm MAP_NAMES dictionary + match normalized popupName
+
+**Bug 3: charMove luôn gửi byte=0**
+- C# gửi byte=1 khi tile là ground (waypoint luôn trên ground)
+- Fix: thêm type_ parameter, _move_to gửi type_=1 + 3 lần charMove như C# TeleportTo
+
+**Bug 4: NPC name-based confirm bị deadlock**
+- move_type=1: không gọi openMenu → server không gửi dialog → deadlock
+- Fix: tự động gọi openMenu từ main loop sau init delay (giống C# UpdateConfirmNpc)
+
+**Bug 5: Teleport panel (CMD_MAP_TRASPORT) block requestChangeMap**
+- Server gửi panel trên một số map, không có cách close
+- C#: `GameCanvas.isWait()` dừng xmap, capsule system xử lý panel
+- Fix: thêm `_handle_teleport_panel()` với 3-tier matching tự động chọn destination
+
+**Bug 6: Zone change reset retry_count → infinite loop**
+- Trên map 19, requestChangeMap bị reject → zone change → on_map_changed reset retry_count → loop vô tận
+- Fix: `on_map_changed` chỉ reset flow khi MAP thực sự thay đổi, ignore zone-only changes
+
+**Bug 7: NPC spam trong lúc xmap**
+- `[NPC] Không có NPC nào ở đây` xuất hiện mỗi khi requestChangeMap bị reject
+- Fix: suppress log khi xmap đang chạy
+
+### Các file đã sửa
+- `handlers/world.py`: isEnter/isOffline order, waypoint update my_char
+- `handlers/interaction.py`: suppress NPC spam khi xmap
+- `handlers/social.py`: on_transport_panel call
+- `xmap_data.py`: MAP_NAMES dictionary + get_map_name()
+- `xmap_runner.py`: toàn bộ logic xmap (waypoint match, teleport panel, zone change fix)
+- `xmap_pathfinder.py`: Cold error message
+- `service.py`: charMove type_ parameter, getMapOffline
+- `cmd.py`: CMD_MAP_OFFLINE

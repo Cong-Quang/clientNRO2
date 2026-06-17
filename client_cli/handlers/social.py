@@ -150,8 +150,10 @@ class SocialHandler:
             names.append(msg.readUTF())
             planets.append(msg.readUTF())
         self.state.map_transport_list = names
-        if self.state.xmap_runner and self.state.xmap_runner.is_running():
+        if self.state.xmap_runner:
             self.state.xmap_runner.on_capsule_map_list(names)
+            if self.state.xmap_runner.is_running():
+                self.state.xmap_runner.on_transport_panel(names)
         log.raw(f"[Teleport] Chọn map để dịch chuyển ({count} maps):")
         for i, name in enumerate(names):
             planet = planets[i] if planets[i] else ""

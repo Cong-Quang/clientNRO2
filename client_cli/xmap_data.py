@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+import re
 
 
 @dataclass
@@ -13,6 +14,159 @@ class MapLink:
     menus_sub2: list = field(default_factory=list)
     walk_x: int = -1
     walk_y: int = -1
+
+
+# Map names dictionary - used to match waypoints by popup name (like C# GetWayPoint)
+MAP_NAMES = {
+    0: "Làng Aru",
+    1: "Đồi hoa cúc",
+    2: "Thung lũng tre",
+    3: "Rừng nấm",
+    4: "Núi ga",
+    5: "Đảo Kamê",
+    6: "Khu vực",
+    7: "Làng Mori",
+    8: "Cánh đồng",
+    9: "Làng cổ",
+    10: "Núi Namếc",
+    11: "Vực cấm",
+    12: "Khu rừng",
+    13: "Đồi nhỏ",
+    14: "Thành phố Vegeta",
+    15: "Hoang mạc",
+    16: "Núi Xayda",
+    17: "Đồi Xayda",
+    18: "Vách núi đen",
+    19: "Đại hội võ thuật",
+    20: "Núi lửa",
+    21: "Nhà 1",
+    22: "Nhà 2",
+    23: "Nhà 3",
+    24: "Rừng Bamboo",
+    25: "Vách núi đen",
+    26: "Hành tinh Bill",
+    27: "Rừng Karin",
+    28: "Thần điện",
+    29: "Căn cứ",
+    30: "Hành lang",
+    31: "Thác nước",
+    32: "Khu vực 1",
+    33: "Khu vực 2",
+    34: "Khu vực 3",
+    35: "Sân đấu",
+    36: "Hoang mạc",
+    37: "Khu vực 1",
+    38: "Khu vực 2",
+    39: "Nhà 4",
+    40: "Nhà 5",
+    41: "Nhà 6",
+    42: "Khu vực",
+    43: "Khu vực",
+    44: "Đại hội võ thuật",
+    45: "Tháp 1",
+    46: "Tháp 2",
+    47: "Lối vào",
+    48: "Tháp 3",
+    50: "Tháp 4",
+    52: "Đại hội võ thuật",
+    53: "Cổng hành tinh",
+    54: "Đấu trường",
+    55: "Hành tinh 1",
+    56: "Hành tinh 2",
+    57: "Hành tinh 3",
+    58: "Hành tinh 4",
+    59: "Hành tinh 5",
+    60: "Hành tinh 6",
+    61: "Hành tinh 7",
+    62: "Hành tinh 8",
+    63: "Sân đấu 1",
+    64: "Khu vực Fide",
+    65: "Rừng Fide",
+    66: "Núi Fide",
+    67: "Đồi Fide",
+    68: "Hành tinh Fide",
+    69: "Cổng 1",
+    70: "Khu vực 2",
+    71: "Khu vực 3",
+    72: "Khu vực 4",
+    73: "Đấu trường 1",
+    74: "Đấu trường 2",
+    75: "Đấu trường 3",
+    76: "Đấu trường 4",
+    77: "Đấu trường 5",
+    79: "Đấu trường 6",
+    80: "Đấu trường 7",
+    81: "Đấu trường 8",
+    82: "Đấu trường 9",
+    83: "Đấu trường 10",
+    84: "Siêu thị",
+    85: "NRD 1",
+    86: "NRD 2",
+    87: "NRD 3",
+    88: "NRD 4",
+    89: "NRD 5",
+    90: "NRD 6",
+    91: "NRD 7",
+    92: "Khu vực 1",
+    93: "Khu vực 2",
+    94: "Khu vực 3",
+    96: "Đồn địch",
+    97: "Đồn địch 2",
+    98: "Khu vực 4",
+    99: "Khu vực 5",
+    100: "Khu vực 6",
+    102: "Tương lai",
+    103: "Khu vực 7",
+    104: "Sân bay",
+    105: "Lạnh giá",
+    106: "Băng 1",
+    107: "Băng 2",
+    108: "Băng 3",
+    109: "Cold",
+    110: "Tuyết",
+    111: "Sân đấu",
+    113: "Siêu hạng",
+    122: "Đảo",
+    123: "Đảo 1",
+    124: "Đảo 2",
+    126: "Vực tối",
+    127: "Đại hội 1",
+    129: "Đại hội 2",
+    131: "Võ đài 1",
+    132: "Võ đài 2",
+    133: "Võ đài 3",
+    139: "Đảo 3",
+    140: "Đảo 4",
+    147: "Khi Gas 1",
+    148: "Khi Gas 2",
+    149: "Khi Gas",
+    151: "Khi Gas 3",
+    152: "Khi Gas 4",
+    153: "Khu vực bang",
+    154: "Mảnh vỡ 1",
+    155: "Mảnh vỡ 2",
+    156: "Sân bang 1",
+    157: "Sân bang 2",
+    158: "Sân bang 3",
+    159: "Sân bang 4",
+    160: "Nhẫn thời không",
+    161: "Phòng 1",
+    162: "Phòng 2",
+    163: "Phòng 3",
+    166: "Mảnh vỡ 3",
+    173: "Nhà mới 1",
+    174: "Nhà mới 2",
+    175: "Nhà mới 3",
+    181: "Khu vực bang 2",
+}
+
+
+def get_map_name(mid: int) -> str:
+    return MAP_NAMES.get(mid, "")
+
+
+def _normalize(s: str) -> str:
+    return re.sub(r'\s+', '', s.lower().strip())
 
 
 TRAI_DAT = [42, 21, 0, 1, 2, 3, 4, 5, 6, 27, 28, 29, 30, 47, 42, 24, 53, 58, 59, 60, 61, 62, 55, 56, 54, 57]
@@ -50,11 +204,6 @@ CLAN_MAP_START, CLAN_MAP_END = 53, 62
 COLD_MAP_START, COLD_MAP_END = 105, 110
 NRD_MAP_START, NRD_MAP_END = 85, 91
 SPECIAL_MAP_START, SPECIAL_MAP_END = 153, 159
-
-
-def _normalize(s: str) -> str:
-    import re
-    return re.sub(r'\s+', '', s.lower().strip())
 
 
 def build_graph() -> dict[int, list[MapLink]]:
@@ -138,7 +287,7 @@ def build_graph() -> dict[int, list[MapLink]]:
     add_portal_group(24, [25, 26, 84], npc=10, indices=[0, 1, 2])
     add_portal_group(25, [24, 26, 84], npc=11, indices=[0, 1, 2])
     add_portal_group(26, [24, 25, 84], npc=12, indices=[0, 1, 2])
-    add_npc_link(84, 21, npc=10, move_type=2, menus=[0])
+    add_npc_link(84, 24, npc=10, move_type=2, menus=[0])
 
     add_npc_link(27, 102, npc=38, move_type=2, menus=[1])
     add_npc_link(28, 102, npc=38, move_type=2, menus=[1])

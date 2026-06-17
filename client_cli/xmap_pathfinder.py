@@ -92,4 +92,6 @@ def get_error_message(target_map: int, current_map: int, power: int = 0, task_id
         return "Cần có pt để vào map này."
     if target_map == 160:
         return "Không có Nhẫn thời không!"
+    if is_cold_map(target_map) and task_id <= 30:
+        return "Cần hoàn thành nhiệm vụ (task > 30) để vào hành tinh Cold."
     return f"Không thể tìm thấy đường đi từ map {current_map} đến map {target_map}."

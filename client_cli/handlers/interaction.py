@@ -201,7 +201,9 @@ class InteractionHandler:
     def handle_hide_wait_dialog(self, msg: Message):
         type_ = msg.readByte()
         if type_ == -1:
-            log.raw("[NPC] Không có NPC nào ở đây")
+            # Chỉ log khi KHÔNG có xmap chạy, tránh spam trong lúc auto đi map
+            if not (self.state.xmap_runner and self.state.xmap_runner.is_running()):
+                log.raw("[NPC] Không có NPC nào ở đây")
         else:
             log.info("NPC", f"Enemy list type={type_}, size={msg.available()}")
 

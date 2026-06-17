@@ -32,12 +32,12 @@ class WorldHandler:
             minY = msg.readShort()
             maxX = msg.readShort()
             maxY = msg.readShort()
-            isOffline = msg.readBoolean()
             isEnter = msg.readBoolean()
+            isOffline = msg.readBoolean()
             popupName = msg.readUTF()
             self.state.waypoints.append({
                 'minX': minX, 'minY': minY, 'maxX': maxX, 'maxY': maxY,
-                'isOffline': isOffline, 'isEnter': isEnter, 'popupName': popupName,
+                'isEnter': isEnter, 'isOffline': isOffline, 'popupName': popupName,
             })
 
         # skip mobs
@@ -433,6 +433,9 @@ class WorldHandler:
         x = msg.readShort()
         y = msg.readShort()
         self.state.update_player_pos(pid, x, y)
+        if self.state.my_char and self.state.my_char.charID == pid:
+            self.state.my_char.cx = x
+            self.state.my_char.cy = y
 
     def handle_player_die(self, msg: Message):
         pid = msg.readShort()

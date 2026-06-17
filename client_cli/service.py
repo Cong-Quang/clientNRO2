@@ -68,14 +68,18 @@ class Service:
         msg = Message(C.CMD_MAP_CHANGE)
         self._send(msg)
 
+    def getMapOffline(self):
+        msg = Message(C.CMD_MAP_OFFLINE)
+        self._send(msg)
+
     def requestChangeZone(self, zoneId: int):
         msg = Message(C.CMD_ZONE_CHANGE)
         msg.writeByte(zoneId)
         self._send(msg)
 
-    def charMove(self, cx: int, cy: int, cdir: int):
+    def charMove(self, cx: int, cy: int, cdir: int, type_: int = 0):
         msg = Message(C.CMD_PLAYER_MOVE)
-        msg.writeByte(0)
+        msg.writeByte(type_)
         msg.writeShort(cx)
         msg.writeShort(cy)
         self._send(msg)
