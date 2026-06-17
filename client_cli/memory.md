@@ -112,7 +112,7 @@
 ### Shop Flow
 1. `/npcmenu <id>` → mở NPC
 2. `/menu 0` hoặc `0` → chọn option "Cửa hàng"
-3. Server gửi cmd=-44 (SHOP) → hiển thị tab + item + giá
+3. Server trả cmd=-44 (SHOP) → hiển thị tab + item + giá
 4. `/buy <t> <itemId>` → mua đồ (`t=0`: vàng, `t=1`: ngọc)
 
 ### Item Options
@@ -253,3 +253,202 @@ byte: selectedIndex
 - `xmap_pathfinder.py`: Cold error message
 - `service.py`: charMove type_ parameter, getMapOffline
 - `cmd.py`: CMD_MAP_OFFLINE
+
+## Session 6 - Xmap fixes (NPC link 84→24, Y-tiebreaker, A* pathfinding)
+
+### Bug 1: NPC link wrong — map 84 → 21 should be 84 → 24
+
+**Vấn đề:**
+- `xmap_data.py` có `add_npc_link(84, 21, npc=10, move_type=2, menus=[0])`
+- NPC 10 (Tàu Vũ Trụ) trên map 84 (Siêu Thị), chọn "Đến Trái Đất" (index 0) thực tế gửi đến **map 24** (Rừng Bamboo), không phải map 21 (Nhà 1)
+- Graph sai → pathfinder đi 84→21, server lại gửi 84→24. Từ 24 pathfinder lại 24→84 → **loop vô tận 24 ↔ 84**
+
+**Fix:** `xmap_data.py`
+```python
+# CŨ (sai):
+add_npc_link(84, 21, npc=10, move_type=2, menus=[0])
+# MỚI (đúng):
+add_npc_link(84, 24, npc=10, move_type=2, menus=[0])
+```
+
+### Bug 2: Teleport panel interfere với NPC interaction
+
+**Vấn đề:**
+- Khi xmap đang gọi NPC (move_type=2), server đôi khi gửi CMD_MAP_TRASPORT (teleport panel)
+- Panel handler `_handle_teleport_panel()` can thiệp, chọn destination sai, phá flow NPC
+
+**Fix:** `xmap_runner.py`
+- Thêm `_in_npc_interaction` flag, set = True khi `_handle_npc` được gọi
+- Panel handler chỉ chạy khi `not self._in_npc_interaction`
+- Flag được clear ở:
+  - `on_map_changed` (map change thành công)
+  - NPC index delay hết (`_last_npc_index_time` reset)
+  - NPC confirm timeout (`_confirm_npc_id = -1`)
+  - Map change retry timeout
+
+### Bug 3: Waypoint stacked theo chiều cao (Núi Fide, v.v.)
+
+**Vấn đề:**
+- Trên map Núi Fide (66) và một số map khác, có 2 exit waypoint **cùng tọa độ X** nhưng khác Y (độ cao)
+- Popup name không match được (empty), code chọn theo X → chọn sai → đi nhầm map
+
+**Fix:** `xmap_runner.py` — `_find_correct_waypoint()`
+- Sau khi chọn waypoint theo X (wp_pos), kiểm tra xem có waypoint nào khác cùng X không
+- Nếu có (>= 2 waypoint, sai lệch minX/maxX < 10px): dùng Y của nhân vật để chọn
+- `min(same_x_wps, key=lambda wp: abs(wp['maxY'] - me.cy))`
+
+### Bug 4: Capsule auto-use vẫn bật
+
+**Vấn đề:**
+- `use_capsule = True` mặc định, xmap tự dùng capsule nếu có trong balo
+- Từng gây loop 84↔24 (đã fix ở Bug 1), nhưng người dùng vẫn muốn giữ auto-use
+
+**Kết luận:**
+- Cơ chế hiện tại đã đúng: `_try_use_capsule` kiểm tra `_get_item_in_bag(194/193)`, nếu không có capsule thì skip
+- Giữ `MIN_PATH_LENGTH_FOR_CAPSULE = 4` (theo yêu cầu user)
+
+### Cải tiến: A* Pathfinding
+
+**Vấn đề:**
+- BFS tìm đường ngắn nhất theo số hop, không phân biệt waypoint (dễ) vs NPC (khó)
+- Có thể chọn path nhiều NPC thay vì đường dài hơn nhưng toàn waypoint
+
+**Fix:**
+- `xmap_pathfinder.py`: BFS → **A\*** với weighted costs
+
+**Chi phí mỗi loại di chuyển (MOVE_COST):**
+```
+waypoint(0) = 1  (rẻ nhất, ưu tiên)
+walk(4)     = 2
+npc_index(2)= 3  (nhanh, ít lỗi)
+npc_menu(1) = 5  (chậm, dễ fail)
+item(3)     = 10 (tốn item)
+```
+
+**Heuristic (admissible):**
+- Precompute BFS shortest path distances cho tất cả cặp node (~180 nodes)
+- Dùng BFS distance làm heuristic: vì min edge cost = 1 (waypoint), BFS distance ≤ weighted cost thực tế → admissible
+
+**Kết quả test:**
+- 20→39: A* cost=12 (tránh 2 NPC interactions), BFS cost=13
+- 0→66: A* chọn đường dài hơn nhưng ít NPC hơn (1 NPC vs 2 NPC)
+- Các path khác: giống hoặc tối ưu hơn
+
+**Thêm:**
+- `find_path_bfs()` — giữ BFS làm fallback reference
+- `find_path_with_cost()` — trả về path + tổng cost để debug
+
+### Các file đã sửa
+- `xmap_data.py`: NPC link 84→24 (fix loop)
+- `xmap_runner.py`: `_in_npc_interaction` flag, Y-tiebreaker waypoint stacked
+- `xmap_pathfinder.py`: BFS → A* với weighted costs và heuristic
+- `memory.md`: session notes
+
+## Session 7 - LoadTwoWaypoints() fallback, C# source analysis
+
+### Bug: Loop 64↔72 (Fide planet) — waypoint stacked ở cùng vị trí X/Y
+
+**Vấn đề:**
+- Trên map 64 (Núi dây leo), 2 exit waypoint đến map 65 và map 72 có vị trí gần như nhau
+- Popup name matching chọn đúng waypoint (Núi cây quỷ → map 65), move player đến (1668,312)
+- Nhưng server KHÔNG dùng popup name — server xác định destination dựa trên **vị trí player**
+- Vì 2 waypoint ở cùng vị trí, server không phân biệt được → gửi player về map 72 (sai)
+
+**Phân tích C# source:**
+
+Đã đọc 4 file C#:
+- `ModNroPc/Xmap/NextMap.cs` — `GetWayPoint()`, `Enter()`, `CalculateTargetX()`, NPC confirm
+- `ModNroPc/Xmap/MainXmapCL.cs` — `UpdateXmap()`, `LoadWaypointsInMap()`, `LoadTwoWaypoints()`, capsule
+- `ModNroPc/Xmap/DataXmap.cs` — graph links, planet definitions, NPC links
+- `ModNroPc/TileMap.cs` — `mapNames[]`, `pxw` (map width)
+
+**Key differences with Python:**
+
+1. **C# dùng `TileMap.mapNames[]`** — mảng tên tất cả map từ server, gửi qua `createMap()` (cmd=6 = UPDATE_MAP). Python CLI không bắt packet này, chỉ lưu tên map hiện tại qua `handle_map_info`
+
+2. **C# có `TileMap.pxw = tmw * 24px`** — chiều rộng map thật. Python ước lượng từ waypoint → sai số lớn
+
+3. **C# `LoadTwoWaypoints()`** — xử lý 2 waypoint cùng 1 bên (bothLeft || bothRight): xếp waypoint đầu = left (minX+15), waypoint sau = right (maxX-15). Navigation dùng `wp_pos` (-1=left/prev, 1=right/next) để chọn vị trí phù hợp
+
+**Fix: `xmap_runner.py`**
+
+`_calc_target_pos(wp, wp_pos)`:
+- Thêm tham số `wp_pos` (hướng: -1=prev/left, 1=next/right)
+- `map_width` cố định **2400px** (chuẩn NRO 100 tiles × 24px) thay vì ước lượng từ waypoint
+- LoadTwoWaypoints-style **position offset**: khi phát hiện ≥2 waypoint cùng X (abs(minX diff) < 15), tự động +30px nếu đi NEXT, -30px nếu đi PREV
+
+`_handle_waypoint()`:
+- Truyền `link.wp_pos` vào `_calc_target_pos(wp, link.wp_pos)`
+
+**C# Packet mapNames (`CMD_UPDATE_MAP = 6`):**
+- `Controller.cs` case 6 gọi `createMap(msg.reader())`
+- Python `cmd.py` đã có `CMD_UPDATE_MAP = 6`
+- Nhưng dispatcher trong `client.py` gán `6: handle_send_money` (sai format)
+- Bắt packet này phức tạp vì `createMap()` đọc toàn bộ map templates + NPC templates — không cần thiết
+- Giải pháp: `SERVER_MAP_NAMES` dict + `set_server_map_name()` từ `handle_map_info` (đã có sẵn)
+
+### Các file đã sửa
+- `xmap_runner.py`: `_calc_target_pos(wp, wp_pos)` + LoadTwoWaypoints position offset
+- `memory.md`: session notes
+
+## Session 8 - MAP_NAMES[63] correction, LoadTwoWaypoints verified working
+
+### LoadTwoWaypoints fix THÀNH CÔNG
+Log xác nhận: **64→65 đã hoạt động** (không còn loop 64↔72):
+```
+Map: Núi dây leo (ID=64)  Zone: 8
+Map:65 Z:5 Players:0/map
+Map: Núi cây quỷ (ID=65)  Zone: 5
+```
+Position offset trong `_calc_target_pos(wp, wp_pos)` đã giúp server phân biệt waypoint nào được chọn.
+
+### Bug mới: MAP_NAMES[63] sai → loop 65↔64
+
+**Vấn đề:**
+- Trên map 65, exit waypoints: 'Núi dây leo' (về 64), 'Trại lính Fide' (đi 63)
+- `MAP_NAMES[63] = "Sân đấu 1"` — không match 'Núi dây leo' hay 'Trại lính Fide'
+- Cả 3 tier matching đều fail → fallback position-based → chọn 'Núi dây leo' (sai) → loop
+
+**Fix:** `xmap_data.py`
+```python
+63: "Trại lính Fide"  # thay vì "Sân đấu 1"
+```
+
+### Cảnh báo
+- Các MAP_NAMES trong chain Fide (66, 67, 73-83) chưa được verify, có thể sai tiếp
+- Cần bắt packet `CMD_UPDATE_MAP = 6` để có mapNames array từ server (giải pháp triệt để)
+
+### Các file đã sửa
+- `xmap_data.py`: MAP_NAMES[63] = "Trại lính Fide"
+
+## Session 9 - Server source map names, fix toàn bộ Nappa chain
+
+### Phát hiện: Map names từ server source code
+Tìm thấy tên map chính thức trong `srcServer/nro/models/map/service/ChangeMapService.java`:
+- File này chứa `checkMapCanJoin()` với comments map name cho mỗi map ID
+- Map names được đọc từ DATABASE qua `Manager.java` line 805: `rs.getString("name")`
+
+### Các MAP_NAMES đã sửa cho Nappa chain:
+```
+66: "Núi Fide" → "Trại quỷ già"
+67: "Đồi Fide" → "Vực chết"
+68: "Thung lũng Nappa" (thử) → "Hành tinh Fide" (giữ nguyên, xác nhận từ log)
+73: "Đấu trường 1" → "Thung lũng chết"
+74: "Đấu trường 2" → "Đồi cây Fide"
+75: "Đấu trường 3" → "Khe núi tử thần"
+76: "Đấu trường 4" → "Núi đá"
+77: "Đấu trường 5" → "Rừng đá"
+79: "Đấu trường 6" → "Núi khỉ đỏ"
+80: "Đấu trường 7" → "Núi khỉ vàng"
+81: "Đấu trường 8" → "Hang quỷ chim"
+82: "Đấu trường 9" → "Núi khỉ đen"
+83: "Đấu trường 10" → "Hang khỉ đen"
+```
+
+### Lưu ý
+- Tên từ server source (Java comments) có thể không khớp 100% với database
+- `SERVER_MAP_NAMES` override MAP_NAMES khi player đã từng đến map đó
+- Cần thêm packet `CMD_UPDATE_MAP = 6` để có map names array từ server (giải pháp triệt để)
+
+### Các file đã sửa
+- `xmap_data.py`: MAP_NAMES 66,67,73-83 (tên thật từ server source)

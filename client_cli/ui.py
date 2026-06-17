@@ -54,7 +54,7 @@ class ConsoleUI:
         log.raw("  /sale <a> <t> <id>  /task <n> <m> [o]")
         log.raw("  /players  /info  /map  /npcs  /items  /equip  /pet  /heal  /gocit  /wake")
         log.raw("  /selectmap <n>  (chọn map khi dùng capsule)")
-        log.raw("  /xmap <mapId>   /xmapstop   /xmapmenu   /xmapsettings")
+        log.raw("  /xmap <mapId>   /xmapstop   /xmapmenu   /xmapsettings   /xmapinfo")
         log.raw("  /log <cat> on|off|debug   /log list")
         log.raw("  /log all on|off|debug     /quit\n")
 
@@ -125,6 +125,7 @@ class ConsoleUI:
             return
         if cmd == '/xmap' and len(parts) >= 2:
             from xmap_runner import XmapRunner
+            from xmap_pathfinder import find_path, get_error_message
             cl = self.client
             target = int(parts[1])
             if cl.state.xmap_runner is None:
@@ -132,6 +133,21 @@ class ConsoleUI:
             if cl.state.xmap_runner.is_running():
                 log.raw(f"Xmap đang chạy, dùng /xmapstop để dừng")
                 return
+
+            # Kiểm tra nếu đã ở map target
+            if target == cl.state.map_id:
+                log.raw(f"Đã đến map {target}!")
+                return
+
+            # Kiểm tra pathfinder trước, tránh silent fail
+            me = cl.state.my_char
+            power = me.cPower if me else 0
+            path = find_path(cl.state.map_id, target, power=power)
+            if not path:
+                err = get_error_message(target, cl.state.map_id, power=power)
+                log.raw(f"Xmap: {err}")
+                return
+
             cl.state.xmap_runner.start(target)
             log.raw(f"Xmap: bắt đầu đi đến map {target}")
             return
@@ -155,6 +171,9 @@ class ConsoleUI:
                 log.raw(f"Ăn đùi gà: {'ON' if r.eat_chicken else 'OFF'} | Capsule: {'ON' if r.use_capsule else 'OFF'}")
             else:
                 log.raw("Xmap chưa được khởi tạo, dùng /xmap <id> trước")
+            return
+        if cmd == '/xmapinfo':
+            self._show_xmap_info()
             return
         if cmd == '/help':
             self._print_help()
@@ -348,3 +367,106 @@ class ConsoleUI:
                     log.raw(f"    [Locked] {sk.get('locked', '')}")
                 else:
                     log.raw(f"    Skill ID: {sk['id']}")
+
+    # ---------------------------------------------------------------------------
+    # XMAP INFO
+    # ---------------------------------------------------------------------------
+    MOVE_TYPE_NAMES = {
+        0: "Waypoint",
+        1: "NPC menu",
+        2: "NPC index",
+        3: "Item",
+        4: "Walk",
+    }
+
+    def _show_xmap_info(self):
+        """Hiển thị thông tin chi tiết về path xmap hiện tại."""
+        s = self.client.state
+        r = s.xmap_runner
+
+        from xmap_pathfinder import find_path_with_cost, get_next_link, find_path_bfs
+        from xmap_data import get_map_name
+
+        me = s.my_char
+        power = me.cPower if me else 0
+        current_map = s.map_id
+
+        if r is None:
+            log.raw("[Xmap] Xmap chưa được khởi tạo. Dùng /xmap <mapId> trước.")
+            return
+
+        target_map = r.target_map
+        if target_map < 0 or (not r.is_running() and not r.path):
+            log.raw("[Xmap] Xmap chưa chạy hoặc chưa có target. Dùng /xmap <mapId> trước.")
+            return
+
+        # Luôn recalculate path từ vị trí hiện tại để hiển thị thông tin chính xác
+        recalc_path, astar_cost = find_path_with_cost(current_map, target_map, power=power)
+        bfs_path = find_path_bfs(current_map, target_map, power=power)
+        bfs_hops = len(bfs_path) - 1 if bfs_path else 0
+
+        is_running = r.is_running()
+        header = f"[Xmap] Map hiện tại: {current_map} → Target: {target_map}"
+        if is_running:
+            header += f"  ({r.status})"
+        else:
+            header += "  (đã dừng)"
+        log.raw(header)
+
+        if is_running:
+            log.raw(f"  Settings: Capsule={'ON' if r.use_capsule else 'OFF'} | Gà={'ON' if r.eat_chicken else 'OFF'} | Delay={r.map_delay}s")
+
+        if not recalc_path:
+            log.raw("  (không tìm thấy đường đi)")
+            return
+
+        log.raw(f"  Path A*:   {' → '.join(str(m) for m in recalc_path)}")
+        log.raw(f"  Cost A*:   {astar_cost}")
+        if bfs_path:
+            log.raw(f"  Path BFS:  {' → '.join(str(m) for m in bfs_path)}")
+            log.raw(f"  Hops BFS:  {bfs_hops}")
+            if recalc_path != bfs_path:
+                log.raw(f"  ⚠ A* chọn đường khác BFS (tối ưu cost, không nhất thiết ngắn nhất)")
+
+        # So sánh với path đang lưu (nếu khác)
+        if is_running and r.path and recalc_path != r.path:
+            log.raw(f"  Path lưu:  {' → '.join(str(m) for m in r.path)} (đã thay đổi do di chuyển)")
+
+        log.raw("")
+        log.raw(f"  Các bước di chuyển:")
+        for i in range(len(recalc_path) - 1):
+            fm = recalc_path[i]
+            to = recalc_path[i + 1]
+            link = get_next_link(fm, to)
+            fm_name = get_map_name(fm) or f"Map {fm}"
+            to_name = get_map_name(to) or f"Map {to}"
+
+            if link:
+                mtype = self.MOVE_TYPE_NAMES.get(link.move_type, f"Loại {link.move_type}")
+                cost = self._get_move_cost(link.move_type)
+                detail = self._link_detail(link)
+                log.raw(f"    {i+1}. {fm_name}({fm}) → {to_name}({to})")
+                log.raw(f"       Loại: {mtype} (cost={cost}) {detail}")
+            else:
+                log.raw(f"    {i+1}. {fm_name}({fm}) → {to_name}({to}) [KHÔNG CÓ LINK]")
+
+    def _get_move_cost(self, move_type: int) -> int:
+        from xmap_pathfinder import MOVE_COST
+        return MOVE_COST.get(move_type, 5)
+
+    def _link_detail(self, link) -> str:
+        """Trả về chi tiết của link dạng string."""
+        parts = []
+        if link.npc_id >= 0:
+            npc_name_str = npc_name(link.npc_id) or f"NPC {link.npc_id}"
+            parts.append(f"npc={npc_name_str}(ID={link.npc_id})")
+        if link.menus:
+            parts.append(f"menus={link.menus}")
+        if link.item_id >= 0:
+            parts.append(f"item={link.item_id}")
+        if link.walk_x >= 0 or link.walk_y >= 0:
+            parts.append(f"walk=({link.walk_x},{link.walk_y})")
+        if link.move_type == 0:
+            side = "trái" if link.wp_pos == -1 else "phải" if link.wp_pos == 1 else "giữa"
+            parts.append(f"waypoint={side}")
+        return " | ".join(parts) if parts else ""

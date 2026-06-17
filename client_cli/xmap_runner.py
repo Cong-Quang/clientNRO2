@@ -103,6 +103,12 @@ class XmapRunner:
         self._is_processing_map_change = True
 
     def start(self, target_map: int):
+        if target_map == self.state.map_id:
+            self.status = f"Đã đến map {target_map}!"
+            self.is_running_flag = False
+            self.target_map = target_map
+            return
+
         if self._thread and self._thread.is_alive():
             self.stop()
             time.sleep(0.5)
@@ -118,6 +124,7 @@ class XmapRunner:
         self._confirm_npc_id = -1
         self._retry_count = 0
         self._current_zone_map_id = -1
+        self.use_capsule = True  # Reset mặc định mỗi lần start
         self._stop.clear()
         self.is_running_flag = True
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -421,6 +428,12 @@ class XmapRunner:
     def _try_use_capsule(self, path: list[int]) -> bool:
         if not self.use_capsule:
             return False
+
+        # Kiểm tra path có xuyên hành tinh không
+        # Nếu path chỉ trong 1 hành tinh (Fide, Cold, v.v.), capsule panel sẽ không có map phù hợp
+        if not self._path_crosses_planets(path):
+            return False
+
         if self._is_using_capsule:
             if self._is_opening_panel:
                 return False
@@ -429,13 +442,22 @@ class XmapRunner:
                 return True
             if self._capsule_map_names:
                 for i in range(len(path) - 1, 0, -1):
-                    target_name = str(path[i])
+                    target_name = get_map_name(path[i])
+                    if not target_name:
+                        continue
+                    target_lower = target_name.lower()
                     for j, name in enumerate(self._capsule_map_names):
-                        if target_name in name:
+                        if target_lower in name.lower():
                             self._is_opening_panel = True
                             self.service.requestMapSelect(j)
+                            self.status = f"Capsule: teleport {target_name}"
                             return True
+                # Không match được map nào trong path với capsule panel
+                # Đóng panel bằng cách chọn [0], set use_capsule=False để tránh lặp
+                self._is_using_capsule = False
                 self._is_opening_panel = True
+                self.use_capsule = False
+                self.status = "Capsule panel không có map trong path, tắt capsule"
                 return False
             self._is_using_capsule = False
             self._is_opening_panel = True
@@ -454,6 +476,25 @@ class XmapRunner:
         self._capsule_map_names = list(self.state.map_transport_list)
         self.service.useItem(0, 1, -1, capsule_item['id'])
         return True
+
+    def _path_crosses_planets(self, path: list[int]) -> bool:
+        """Kiểm tra path có đi qua nhiều hành tinh khác nhau không.
+        Nếu path chỉ trong 1 hành tinh (vd: Fide→Fide), capsule sẽ không có ích.
+        """
+        from xmap_data import TRAI_DAT, NAMEK, XAYDA, NAPPA, TUONG_LAI, COLD, THAP_LEO, MANH_VO_BT, KHI_GAS, MAP_KHAC
+        planets = [
+            set(TRAI_DAT), set(NAMEK), set(XAYDA), set(NAPPA),
+            set(TUONG_LAI), set(COLD), set(THAP_LEO),
+            set(MANH_VO_BT), set(KHI_GAS), set(MAP_KHAC),
+        ]
+        found_planets = set()
+        for mid in path:
+            for pi, pset in enumerate(planets):
+                if mid in pset:
+                    found_planets.add(pi)
+                    break
+        # Cross-planet nếu path có >= 2 hành tinh khác nhau
+        return len(found_planets) >= 2
 
     def _goto_next_map(self, current_map: int, next_map: int):
         self.status = f"Map {current_map} → {next_map}"
@@ -489,10 +530,9 @@ class XmapRunner:
         if not wps:
             return None
 
-        # Để RỜI map: xài exit waypoints (isEnter=False)
-        exit_wps = [wp for wp in wps if not wp.get('isEnter')]
-        if exit_wps:
-            wps = exit_wps
+        # Giống C#: không filter isEnter, dùng ALL waypoints từ TileMap.vGo
+        # (waypoint đến map khác có thể được đánh dấu isEnter=True)
+        # https://github.com/duyit/ModNRO/blob/main/ModNroPc/Xmap/NextMap.cs#L509-L516
 
         # Ưu tiên 1: match bằng popup name (giống C#)
         if dest_map is not None:
@@ -504,6 +544,44 @@ class XmapRunner:
                     wps = matched
                     if len(matched) == 1:
                         return matched[0]
+
+                # Tier 2: partial match - nếu dest_name là substring của popupName hoặc ngược lại
+                # (dùng cho trường hợp MAP_NAMES chưa khớp chính xác với server)
+                partial_matched = []
+                for wp in wps:
+                    popup = _normalize_data(wp.get('popupName', ''))
+                    if popup and (norm_dest in popup or popup in norm_dest):
+                        partial_matched.append(wp)
+                if partial_matched:
+                    wps = partial_matched
+                    if len(partial_matched) == 1:
+                        return partial_matched[0]
+
+                # Tier 3: word-by-word match - nếu có ít nhất 1 từ giống nhau giữa 2 tên
+                # (vd: 'Rừng Bamboo' vs 'Rừng Tre' → match từ 'Rừng')
+                # Dùng raw words (trước normalize) vì normalize xóa hết whitespace
+                dest_name_raw = get_map_name(dest_map) if dest_map else ""
+                dest_words = set()
+                if dest_name_raw:
+                    for w in dest_name_raw.lower().split():
+                        normalized = re.sub(r'\s+', '', w)
+                        if normalized:
+                            dest_words.add(normalized)
+                word_matched = []
+                for wp in wps:
+                    popup_raw = wp.get('popupName', '')
+                    if popup_raw:
+                        popup_words = set()
+                        for w in popup_raw.lower().split():
+                            normalized = re.sub(r'\s+', '', w)
+                            if normalized:
+                                popup_words.add(normalized)
+                        if dest_words & popup_words:  # có từ chung
+                            word_matched.append(wp)
+                if word_matched:
+                    wps = word_matched
+                    if len(word_matched) == 1:
+                        return word_matched[0]
 
         # Chọn waypoint theo vị trí X (giống C# GetWayPoint)
         if wp_pos == -1:
@@ -522,12 +600,14 @@ class XmapRunner:
         if len(same_x_wps) >= 2:
             me = self.state.my_char
             if me is not None:
-                # Chọn waypoint có maxY gần với cy của nhân vật nhất
-                return min(same_x_wps, key=lambda wp: abs(wp['maxY'] - me.cy))
+                # Chọn waypoint có maxY XA nhất với nhân vật (đi tiếp, không quay lại)
+                # Khi vào map từ 1 waypoint, cy ở gần waypoint đó.
+                # Nếu chọn gần nhất, sẽ quay lại waypoint vừa vào (sai).
+                return max(same_x_wps, key=lambda wp: abs(wp['maxY'] - me.cy))
 
         return selected
 
-    def _calc_target_pos(self, wp: dict) -> tuple[int, int]:
+    def _calc_target_pos(self, wp: dict, wp_pos: int = 0) -> tuple[int, int]:
         """
         Calculate target position from a waypoint.
         Matches C# NextMap.CalculateTargetX logic:
@@ -535,28 +615,49 @@ class XmapRunner:
         - Right edge (minX > mapWidth - 60): targetX = mapWidth - 15
         - Center: targetX = (minX + maxX) / 2
         - targetY = maxY
+
+        wp_pos: direction hint (-1=prev/left, 1=next/right)
+        When 2 waypoints are stacked (same X), adds offset based on wp_pos
+        to help server distinguish which exit to use.
+        Giống C# LoadTwoWaypoints(): first=left, second=right.
         """
         min_x = wp['minX']
         max_x = wp['maxX']
         max_y = wp['maxY']
 
-        # Determine approximate map pixel width from waypoint positions
-        all_wps = self.state.waypoints
-        if len(all_wps) >= 2:
-            rightmost = max(wp2['maxX'] for wp2 in all_wps)
-            map_width = rightmost + 60
-        else:
-            map_width = 2400
+        # Standard NRO map: 100 tiles x 24px = 2400px
+        # Use this as default instead of unreliable estimation from waypoints
+        MAP_WIDTH = 2400
 
         GATE_EDGE = 60
         GATE_CENTER_OFFSET = 15
 
         if max_x < GATE_EDGE:
+            # Waypoint sát mép TRÁI → đứng ở 15
             tx = GATE_CENTER_OFFSET
-        elif min_x > map_width - GATE_EDGE:
-            tx = map_width - GATE_CENTER_OFFSET
+        elif min_x > MAP_WIDTH - GATE_EDGE:
+            # Waypoint sát mép PHẢI → đứng ở mapWidth - 15
+            tx = MAP_WIDTH - GATE_CENTER_OFFSET
         else:
+            # Waypoint ở GIỮA → trung tâm
             tx = (min_x + max_x) // 2
+
+        # === LoadTwoWaypoints-style offset ===
+        # Khi 2 waypoint có cùng vị trí X (stacked), server không phân biệt được
+        # C# giải quyết: đẩy player lệch hướng dựa trên prev/next
+        # Nếu đi NEXT map (wp_pos=1): đẩy về bên PHẢI
+        # Nếu đi PREV map (wp_pos=-1): đẩy về bên TRÁI
+        if wp_pos != 0:
+            all_wps = self.state.waypoints
+            if len(all_wps) >= 2:
+                # Đếm waypoint có cùng X với waypoint đã chọn
+                same_x_count = sum(1 for w in all_wps if abs(w['minX'] - min_x) < 15)
+                if same_x_count >= 2:
+                    # Có waypoint khác cùng vị trí X → cần offset
+                    # Giống C# LoadTwoWaypoints(): đẩy player lệch hướng
+                    # để server phân biệt exit nào được chọn
+                    offset = 30 if wp_pos == 1 else -30  # next=phải, prev=trái
+                    tx = max(5, min(MAP_WIDTH - 5, tx + offset))
 
         return (tx, max_y)
 
@@ -589,7 +690,7 @@ class XmapRunner:
             self.status = f"Không tìm thấy waypoint cho '{dest_name}'"
             return
 
-        target_x, target_y = self._calc_target_pos(wp)
+        target_x, target_y = self._calc_target_pos(wp, link.wp_pos)
         is_offline = wp.get('isOffline', False)
         popup_name = wp.get('popupName', '')
         self.status += f" → '{popup_name}' ({target_x},{target_y})"

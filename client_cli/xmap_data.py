@@ -16,6 +16,24 @@ class MapLink:
     walk_y: int = -1
 
 
+# Server map names - populated dynamically as player visits maps
+# Ưu tiên cao hơn MAP_NAMES vì đến từ server trực tiếp
+SERVER_MAP_NAMES: dict[int, str] = {}
+
+
+def set_server_map_name(mid: int, name: str):
+    """Lưu tên map từ server. Được gọi từ handle_map_info."""
+    SERVER_MAP_NAMES[mid] = name
+
+
+def get_map_name(mid: int) -> str:
+    """Lấy tên map: ưu tiên server (đã xác thực), fallback về MAP_NAMES."""
+    name = SERVER_MAP_NAMES.get(mid)
+    if name:
+        return name
+    return MAP_NAMES.get(mid, "")
+
+
 # Map names dictionary - used to match waypoints by popup name (like C# GetWayPoint)
 MAP_NAMES = {
     0: "Làng Aru",
@@ -33,11 +51,11 @@ MAP_NAMES = {
     12: "Khu rừng",
     13: "Đồi nhỏ",
     14: "Thành phố Vegeta",
-    15: "Hoang mạc",
+    15: "Đồi hoang",
     16: "Núi Xayda",
     17: "Đồi Xayda",
     18: "Vách núi đen",
-    19: "Đại hội võ thuật",
+    19: "Thành phố Vegeta",
     20: "Núi lửa",
     21: "Nhà 1",
     22: "Nhà 2",
@@ -79,26 +97,26 @@ MAP_NAMES = {
     60: "Hành tinh 6",
     61: "Hành tinh 7",
     62: "Hành tinh 8",
-    63: "Sân đấu 1",
-    64: "Khu vực Fide",
-    65: "Rừng Fide",
-    66: "Núi Fide",
-    67: "Đồi Fide",
+    63: "Trại lính Fide",
+    64: "Núi dây leo",
+    65: "Núi cây quỷ",
+    66: "Trại quỷ già",
+    67: "Vực chết",
     68: "Hành tinh Fide",
-    69: "Cổng 1",
-    70: "Khu vực 2",
-    71: "Khu vực 3",
-    72: "Khu vực 4",
-    73: "Đấu trường 1",
-    74: "Đấu trường 2",
-    75: "Đấu trường 3",
-    76: "Đấu trường 4",
-    77: "Đấu trường 5",
-    79: "Đấu trường 6",
-    80: "Đấu trường 7",
-    81: "Đấu trường 8",
-    82: "Đấu trường 9",
-    83: "Đấu trường 10",
+    69: "Vực cấm",
+    70: "Núi Appule",
+    71: "Căn cứ Raspberry",
+    72: "Thung lũng Raspberry",
+    73: "Thung lũng chết",
+    74: "Đồi cây Fide",
+    75: "Khe núi tử thần",
+    76: "Núi đá",
+    77: "Rừng đá",
+    79: "Núi khỉ đỏ",
+    80: "Núi khỉ vàng",
+    81: "Hang quỷ chim",
+    82: "Núi khỉ đen",
+    83: "Hang khỉ đen",
     84: "Siêu thị",
     85: "NRD 1",
     86: "NRD 2",
@@ -159,10 +177,6 @@ MAP_NAMES = {
     175: "Nhà mới 3",
     181: "Khu vực bang 2",
 }
-
-
-def get_map_name(mid: int) -> str:
-    return MAP_NAMES.get(mid, "")
 
 
 def _normalize(s: str) -> str:

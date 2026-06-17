@@ -17,6 +17,9 @@ class WorldHandler:
         self.state.bg_id = msg.readByte()
         self.state.map_type = msg.readByte()
         self.state.map_name = msg.readUTF()
+        # Lưu tên map từ server để dùng cho waypoint matching (giống C# TileMap.mapNames)
+        from xmap_data import set_server_map_name
+        set_server_map_name(self.state.map_id, self.state.map_name)
         self.state.zone_id = msg.readByte()
         self.state.current_npc_id = 0
 
