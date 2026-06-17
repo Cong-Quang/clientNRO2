@@ -24,7 +24,7 @@ class GameClient(MessageHandler):
 
         self.connection_handler = ConnectionHandler(self.state, self.service)
         self.auth_handler = AuthHandler(self.state, self.service)
-        self.world_handler = WorldHandler(self.state)
+        self.world_handler = WorldHandler(self.state, self.service)
         self.communication_handler = CommunicationHandler(self.state)
         self.interaction_handler = InteractionHandler(self.state)
         self.social_handler = SocialHandler(self.state)
@@ -39,7 +39,7 @@ class GameClient(MessageHandler):
             C.CMD_REGISTER: self.social_handler.handle_register,
             C.CMD_CLIENT_INFO: self.social_handler.handle_client_info,
             C.CMD_DELETE_PLAYER: self.social_handler.handle_delete_player,
-            C.CMD_UPDATE_MAP: self.auth_handler.handle_not_login,
+            6: self.world_handler.handle_send_money,
             C.CMD_UPDATE_SKILL: self.auth_handler.handle_not_login,
             C.CMD_UPDATE_ITEM: self.auth_handler.handle_not_login,
             C.CMD_REQUEST_SKILL: self.auth_handler.handle_not_login,

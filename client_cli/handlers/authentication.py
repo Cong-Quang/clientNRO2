@@ -9,6 +9,7 @@ class AuthHandler:
     def __init__(self, state: GameState, service: Service):
         self.state = state
         self.service = service
+        self._entering_game = False
 
     def handle_get_image_source(self, msg: Message):
         pass
@@ -19,6 +20,7 @@ class AuthHandler:
     def handle_char_list(self, msg: Message):
         count = msg.readByte()
         log.info("LOGIN", f"Character list ({count} chars):")
+        first_name = None
         for i in range(count):
             pid = msg.readInt()
             name = msg.readUTF()
@@ -27,10 +29,14 @@ class AuthHandler:
             leg = msg.readShort()
             ppoint = msg.readLong()
             log.info("LOGIN", f"  [{i}] ID={pid} '{name}' h={head} b={body} l={leg} pw={ppoint}")
-            if self.state.my_char_id == -1:
+            if first_name is None:
+                first_name = name
                 self.state.my_char_id = pid
         self.state.logged_in = True
-        if count > 0:
+        if count == 1 and first_name:
+            log.info("LOGIN", f"Auto-selecting: {first_name}")
+            self.service.selectChar(first_name)
+        elif count > 0:
             log.info("LOGIN", "Use /select <name> to choose a character")
 
     def handle_not_map(self, msg: Message):
@@ -39,6 +45,9 @@ class AuthHandler:
             chname = msg.readUTF()
             log.info("GAME", f"Selected character: {chname}")
             self.state.in_game = True
+            from Char import Char
+            self.state.my_char = Char()
+            self.state.my_char.cName = chname
         elif sub == C.CMD_CREATE_PLAYER:
             name = msg.readUTF()
             log.info("GAME", f"Created character: {name}")
@@ -48,5 +57,11 @@ class AuthHandler:
             else:
                 log.info("GAME", "Entering game...")
             self.state.in_game = True
+            if not self._entering_game:
+                self._entering_game = True
+                self.service.clientOk()
+                self.service.updateMap()
+                self.service.updateSkill()
+                self.service.updateItem()
         else:
-            log.debug("LOGIN", f"not_map sub={sub}")
+            pass

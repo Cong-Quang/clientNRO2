@@ -2,17 +2,22 @@ import cmd as C
 from logger import log
 from network import Message
 from state import GameState
+from Char import Char
 
 
 class WorldHandler:
-    def __init__(self, state: GameState):
+    def __init__(self, state: GameState, service=None):
         self.state = state
+        self.service = service
 
     def handle_map_info(self, msg: Message):
         self.state.map_id = msg.readUnsignedByte()
         self.state.zone_id = msg.readByte()
         log.info("MAP", f"mapId={self.state.map_id} zoneId={self.state.zone_id}")
         log.show_status(f"Map:{self.state.map_id} Z:{self.state.zone_id} Players:{len(self.state.players)}")
+        if self.service:
+            self.service.finishLoadMap()
+            self.service.finishUpdate()
 
     def handle_map_change(self, msg: Message):
         log.info("MAP", "Changing map...")
@@ -33,28 +38,47 @@ class WorldHandler:
         log.info("BODY", f"Update action={action} player={player_id}")
 
     def handle_me_load_point(self, msg: Message):
-        hp_goc = msg.readInt3Byte()
-        mp_goc = msg.readInt3Byte()
-        dam_goc = msg.readInt()
-        hp_full = msg.readLong()
-        mp_full = msg.readLong()
-        hp_cur = msg.readLong()
-        mp_cur = msg.readLong()
-        speed = msg.readByte()
-        hp_from_tn = msg.readByte()
-        mp_from_tn = msg.readByte()
-        dam_from_tn = msg.readByte()
-        dam_full = msg.readLong()
-        def_full = msg.readLong()
-        crit_full = msg.readByte()
-        tiem_nang = msg.readLong()
-        exp_for_one = msg.readShort()
-        def_goc = msg.readInt()
-        crit_goc = msg.readByte()
-        giam_st = msg.readByte()
-        crit_dame_full = msg.readShort()
-        log.info("STATS", f"HP={hp_cur}/{hp_full} MP={mp_cur}/{mp_full} SPD={speed}")
-        log.show_status(f"Map:{self.state.map_id} HP:{hp_cur}/{hp_full} MP:{mp_cur}/{mp_full}")
+        try:
+            hpg = msg.readInt()
+            mpg = msg.readInt()
+            dameg = msg.readInt()
+            hpMax = msg.readInt()
+            mpMax = msg.readInt()
+            hp = msg.readInt()
+            mp = msg.readInt()
+            speed = msg.readByte()
+            msg.readByte()
+            msg.readByte()
+            msg.readByte()
+            dame = msg.readInt()
+            def_ = msg.readInt()
+            crit = msg.readByte()
+            tiemNang = msg.readLong()
+            msg.readShort()
+            defg = msg.readShort()
+            critg = msg.readByte()
+        except Exception as e:
+            log.error("STATS", f"Parse error: {e} raw={msg.getData().hex() if msg.getData() else 'empty'}")
+            return
+        if self.state.my_char is None:
+            self.state.my_char = Char()
+        c = self.state.my_char
+        c.cHPGoc = hpg
+        c.cMPGoc = mpg
+        c.cDamGoc = dameg
+        c.cHPFull = hpMax
+        c.cMPFull = mpMax
+        c.cHP = hp
+        c.cMP = mp
+        c.cspeed = speed
+        c.cDamFull = dame
+        c.cDefull = def_
+        c.cCriticalFull = crit
+        c.cTiemNang = tiemNang
+        c.cDefGoc = defg
+        c.cCriticalGoc = critg
+        log.info("STATS", f"HP={hp}/{hpMax} MP={mp}/{mpMax} SPD={speed} Dmg={dame} Def={def_}")
+        log.show_status(f"Map:{self.state.map_id} HP:{hp}/{hpMax} MP:{mp}/{mpMax}")
 
     def handle_mob_hp(self, msg: Message):
         mob_id = msg.readByte()
@@ -91,7 +115,21 @@ class WorldHandler:
 
     def handle_me_change_coin(self, msg: Message):
         coin = msg.readInt()
-        log.info("COIN", f"Coin changed: {coin}")
+        if self.state.my_char:
+            self.state.my_char.xu = coin
+        log.info("COIN", f"Gold: {coin}")
+
+    def handle_send_money(self, msg: Message):
+        try:
+            gold = msg.readLong()
+        except Exception:
+            gold = msg.readInt()
+        gem = msg.readInt()
+        msg.readInt()  # ruby
+        if self.state.my_char:
+            self.state.my_char.xu = gold
+            self.state.my_char.luong = gem
+        log.info("COIN", f"Gold={gold} Gem={gem}")
 
     def handle_player_attack_n_p(self, msg: Message):
         log.debug("ATTACK", f"size={msg.available()}")
@@ -99,13 +137,48 @@ class WorldHandler:
     def handle_sub_command(self, msg: Message):
         sub = msg.readByte()
         if sub == C.SUB_ME_LOAD_ALL:
-            log.info("SUB", "Loading all data...")
+            pid = msg.readInt()
+            task_id = msg.readByte()
+            gender = msg.readByte()
+            head = msg.readShort()
+            chname = msg.readUTF()
+            msg.readByte()  # cPk (0)
+            msg.readByte()  # typePk
+            msg.readLong()  # power
+            msg.readShort() # reserved
+            msg.readShort() # reserved
+            msg.readByte()  # gender dup
+            skill_count = msg.readByte()
+            for _ in range(skill_count):
+                msg.readShort()
+            try:
+                gold = msg.readLong()
+            except Exception:
+                gold = msg.readInt()
+            ruby = msg.readInt()
+            gem = msg.readInt()
+            if self.state.my_char:
+                self.state.my_char.xu = gold
+                self.state.my_char.luong = gem
+                self.state.my_char.luongKhoa = ruby
+            log.info("SUB", f"Loaded: pid={pid} name={chname} gold={gold} gem={gem}")
         elif sub == C.SUB_ME_LOAD_CLASS:
             log.info("SUB", "Loading class...")
         elif sub == C.SUB_ME_LOAD_SKILL:
             log.info("SUB", "Loading skills...")
         elif sub == C.SUB_ME_LOAD_INFO:
-            log.info("SUB", "Loading info...")
+            try:
+                gold = msg.readLong()
+            except Exception:
+                gold = msg.readInt()
+            gem = msg.readInt()
+            msg.readInt()
+            msg.readInt()
+            msg.readInt()
+            if self.state.my_char:
+                self.state.my_char.xu = gold
+                self.state.my_char.luong = gem
+            log.info("SUB", f"Gold={gold} Gem={gem}")
         elif sub == C.SUB_ME_LOAD_HP:
             log.info("SUB", "Updating HP...")
         elif sub == C.SUB_ME_LOAD_MP:
@@ -136,18 +209,26 @@ class WorldHandler:
         elif sub == C.SUB_PLAYER_LOAD_LEVEL:
             player_id = msg.readInt()
             level = msg.readByte()
+            if player_id == self.state.my_char_id and self.state.my_char:
+                self.state.my_char.clevel = level
             log.info("LEVEL", f"player={player_id} level={level}")
         elif sub == C.SUB_PLAYER_LOAD_VUKHI:
             player_id = msg.readInt()
             weapon_id = msg.readShort()
+            if player_id == self.state.my_char_id and self.state.my_char:
+                self.state.my_char.wp = weapon_id
             log.info("WEAPON", f"player={player_id} weapon={weapon_id}")
         elif sub == C.SUB_PLAYER_LOAD_AO:
             player_id = msg.readInt()
             body_id = msg.readShort()
+            if player_id == self.state.my_char_id and self.state.my_char:
+                self.state.my_char.body = body_id
             log.info("BODY", f"player={player_id} body={body_id}")
         elif sub == C.SUB_PLAYER_LOAD_QUAN:
             player_id = msg.readInt()
             leg_id = msg.readShort()
+            if player_id == self.state.my_char_id and self.state.my_char:
+                self.state.my_char.leg = leg_id
             log.info("LEG", f"player={player_id} leg={leg_id}")
         elif sub == C.SUB_PLAYER_LOAD_BODY:
             player_id = msg.readInt()
@@ -176,28 +257,72 @@ class WorldHandler:
             log.debug("SUB", f"sub={sub} size={msg.available()}")
 
     def handle_player_add(self, msg: Message):
-        if msg.available() < 4:
-            log.debug("PLAYER", f"add too short: {msg.available()}b")
+        try:
+            pid = msg.readInt()
+            clan_id = msg.readInt()
+            level = msg.readByte()
+            msg.readByte()
+            type_pk = msg.readByte()
+            gender = msg.readByte()
+            msg.readByte()
+            head = msg.readShort()
+            name = msg.readUTF()
+            hp = msg.readInt()
+            hp_max = msg.readInt()
+            body = msg.readShort()
+            leg = msg.readShort()
+            bag = msg.readByte()
+            msg.readByte()
+            x = msg.readShort()
+            y = msg.readShort()
+            msg.readShort()
+            msg.readShort()
+            msg.readByte()
+            msg.readByte()
+            msg.readByte()
+            msg.readShort()
+            msg.readByte()
+            msg.readByte()
+            msg.readShort()
+            msg.readByte()
+            msg.readShort()
+        except Exception as e:
+            log.error("PLAYER", f"Parse error: {e}")
             return
-        pid = msg.readInt()
-        name = msg.readUTF() if msg.available() > 2 else ''
-        head = msg.readShort() if msg.available() >= 2 else 0
-        body = msg.readShort() if msg.available() >= 2 else 0
-        leg = msg.readShort() if msg.available() >= 2 else 0
-        gender = msg.readByte() if msg.available() >= 1 else 0
-        is_fusion = msg.readByte() if msg.available() >= 1 else 0
-        x = msg.readShort() if msg.available() >= 2 else 0
-        y = msg.readShort() if msg.available() >= 2 else 0
         data = {
-            'id': pid, 'name': name,
+            'id': pid, 'name': name, 'clan_id': clan_id,
             'head': head, 'body': body, 'leg': leg,
-            'gender': gender, 'x': x, 'y': y,
+            'gender': gender, 'x': x, 'y': y, 'level': level,
         }
         self.state.add_player(pid, data)
-        if pid == self.state.my_char_id:
+        my_name = self.state.my_char.cName if self.state.my_char else ''
+        if self.state.my_char and (name == my_name or name.endswith(my_name)):
+            c = self.state.my_char
+            c.charID = pid
+            c.cName = name
+            c.head = head
+            c.body = body
+            c.leg = leg
+            c.cgender = gender
+            c.clevel = level
+            c.cx = x
+            c.cy = y
+            log.info("ME", f"Spawned at ({x},{y})")
+        elif self.state.my_char is None and name:
+            c = Char()
+            c.charID = pid
+            c.cName = name
+            c.head = head
+            c.body = body
+            c.leg = leg
+            c.cgender = gender
+            c.clevel = level
+            c.cx = x
+            c.cy = y
+            self.state.my_char = c
             log.info("ME", f"Spawned at ({x},{y})")
         else:
-            log.info("PLAYER", f"{name} ({pid}) at ({x},{y})")
+            log.info("PLAYER", f"{pid} at ({x},{y})")
         log.show_status(f"Map:{self.state.map_id} Players:{len(self.state.players)}")
 
     def handle_player_remove(self, msg: Message):

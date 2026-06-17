@@ -40,9 +40,9 @@ class Service:
         self._send(msg)
 
     def _get_version(self) -> str:
-        return "1.0.0"
+        return "2.4.5"
 
-    def login(self, username: str, password: str, version: str = "1.0.0", type_: int = 0):
+    def login(self, username: str, password: str, version: str = "2.4.5", type_: int = 0):
         msg = self.messageNotLogin(C.CMD_LOGIN)
         msg.writeUTF(username)
         msg.writeUTF(password)

@@ -84,6 +84,22 @@ class Logger:
         self._width = 80
         self._last_status = ''
         self._status_dirty = False
+        self._safe_print = self._make_safe_print()
+
+    def _make_safe_print(self):
+        buf = sys.stdout.buffer
+        def sp(text, **kw):
+            try:
+                print(text, **kw)
+            except UnicodeEncodeError:
+                try:
+                    buf.write((text + '\n').encode('utf-8', 'replace'))
+                    buf.flush()
+                except Exception:
+                    pass
+            except Exception:
+                pass
+        return sp
 
     def auto_config(self):
         try:
@@ -145,7 +161,7 @@ class Logger:
         if self._status_dirty:
             out = '\r' + ' ' * self._width + '\r' + out
             self._status_dirty = False
-        print(out)
+        self._safe_print(out)
 
     def debug(self, tag, msg):
         self._write(LogLevel.DEBUG, tag, msg)
@@ -162,9 +178,9 @@ class Logger:
     def raw(self, msg):
         if self._enabled:
             if self._status_dirty:
-                print('\r' + ' ' * self._width + '\r', end='')
+                self._safe_print('\r' + ' ' * self._width + '\r', end='')
                 self._status_dirty = False
-            print(msg)
+            self._safe_print(msg)
 
     def show_status(self, text):
         if not self._enabled:

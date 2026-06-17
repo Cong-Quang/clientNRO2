@@ -170,5 +170,10 @@ class ConsoleUI:
 
     def _show_info(self):
         s = self.client.state
-        log.raw(f"Map: {s.map_id}  Zone: {s.zone_id}")
-        log.raw(f"Players: {len(s.players)}  Logged in: {s.logged_in}  In game: {s.in_game}")
+        c = s.my_char
+        log.raw(f"Map: {s.map_id}  Zone: {s.zone_id}  Players: {len(s.players)}")
+        if c:
+            for line in c.format().split("\n"):
+                log.raw("  " + line)
+        else:
+            log.raw("  (no character data)")
