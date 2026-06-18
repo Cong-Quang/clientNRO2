@@ -1,9 +1,10 @@
 import time
 import sys
-from logger import log, LogLevel, CATEGORIES
+from logger import log, LogLevel, CATEGORIES, CAT_ALIAS
 from client import GameClient
 from npcs_data import npc_name
 from items_data import item_name
+from item_detail import format_item_detail, format_item_short, find_item_by_id, analyze_item
 
 
 class ConsoleUI:
@@ -52,10 +53,11 @@ class ConsoleUI:
         log.raw("  /zone <id>       /changemap")
         log.raw("  /skill <id>      /buy <t> <id> [qty]  (t=0:vàng,1:ngọc)")
         log.raw("  /sale <a> <t> <id>  /task <n> <m> [o]")
-        log.raw("  /players  /info  /map  /npcs  /items  /equip  /pet  /heal  /gocit  /wake")
+        log.raw("  /players  /info  /map  /npcs  /items  /equip  /pet")
+        log.raw("  /item <idx>      /finditem <id>  /useitem <idx>")
         log.raw("  /selectmap <n>  (chọn map khi dùng capsule)")
         log.raw("  /xmap <mapId>   /xmapstop   /xmapmenu   /xmapsettings   /xmapinfo")
-        log.raw("  /log <cat> on|off|debug   /log list")
+        log.raw("  /heal  /gocit  /wake  /log <cat> on|off|debug")
         log.raw("  /log all on|off|debug     /quit\n")
 
     def _input_loop(self):
@@ -108,10 +110,22 @@ class ConsoleUI:
         if cmd == '/info':
             self._show_info()
             return
+
+        # === ITEM COMMANDS ===
         if cmd == '/items':
             self.client.service.getBag(0)
             self._show_items()
             return
+        if cmd in ('/item', '/i') and len(parts) >= 2:
+            self._show_item_detail(parts)
+            return
+        if cmd in ('/finditem', '/fi') and len(parts) >= 2:
+            self._find_item(parts)
+            return
+        if cmd == '/useitem' and len(parts) == 2:
+            self._quick_use_item(parts)
+            return
+
         if cmd == '/equip':
             self.client.service.getBody(0)
             self._show_equip()
@@ -123,6 +137,8 @@ class ConsoleUI:
         if cmd == '/log' or cmd == '/debug':
             self._handle_log(parts)
             return
+
+        # === XMAP COMMANDS ===
         if cmd == '/xmap' and len(parts) >= 2:
             from xmap_runner import XmapRunner
             from xmap_pathfinder import find_path, get_error_message
@@ -133,13 +149,9 @@ class ConsoleUI:
             if cl.state.xmap_runner.is_running():
                 log.raw(f"Xmap đang chạy, dùng /xmapstop để dừng")
                 return
-
-            # Kiểm tra nếu đã ở map target
             if target == cl.state.map_id:
                 log.raw(f"Đã đến map {target}!")
                 return
-
-            # Kiểm tra pathfinder trước, tránh silent fail
             me = cl.state.my_char
             power = me.cPower if me else 0
             path = find_path(cl.state.map_id, target, power=power)
@@ -147,7 +159,6 @@ class ConsoleUI:
                 err = get_error_message(target, cl.state.map_id, power=power)
                 log.raw(f"Xmap: {err}")
                 return
-
             cl.state.xmap_runner.start(target)
             log.raw(f"Xmap: bắt đầu đi đến map {target}")
             return
@@ -298,16 +309,86 @@ class ConsoleUI:
         else:
             log.raw("  (no character data)")
 
+    # ====================================================================
+    # ITEM DETAIL COMMANDS
+    # ====================================================================
+
+    def _show_item_detail(self, parts):
+        """Show detailed info for a specific bag item by index."""
+        index = int(parts[1])
+        s = self.client.state
+        items = s.items_bag
+
+        if not items:
+            log.raw("[Item] Chưa có dữ liệu hành trang. Dùng /items để load.")
+            return
+
+        if index < 0 or index >= len(items):
+            log.raw(f"[Item] Index {index} không hợp lệ. Hành trang có {len(items)} ô.")
+            return
+
+        item = items[index]
+        if item is None:
+            log.raw(f"[Item] Ô {index} trống.")
+            return
+
+        detail = format_item_detail(item, index=index, location="bag")
+        log.raw(f"[Item] Chi tiết:")
+        for line in detail.split("\n"):
+            log.raw(line)
+
+    def _find_item(self, parts):
+        """Find items by template ID across bag/body/box."""
+        item_id = int(parts[1])
+        s = self.client.state
+
+        result = find_item_by_id(s, item_id)
+        name = item_name(item_id)
+
+        if not result['found']:
+            log.raw(f"[Find] Không tìm thấy {name} (ID={item_id}) trong balo/body/rương.")
+            return
+
+        log.raw(f"[Find] {name} (ID={item_id}): tìm thấy {len(result['items'])} cái")
+        for entry in result['items']:
+            loc = entry['location']
+            idx = entry['index']
+            item = entry['item']
+            short = format_item_short(item, index=idx)
+            log.raw(f"  [{loc.upper()}] {short}")
+
+        log.raw(f"  Dùng /item {result['items'][0]['index']} để xem chi tiết (nếu ở bag)")
+
+    def _quick_use_item(self, parts):
+        """Quick use an item from bag by index.
+        /useitem <index>  - use item from bag at index
+        """
+        index = int(parts[1])
+        s = self.client.state
+        items = s.items_bag
+
+        if not items or index < 0 or index >= len(items):
+            log.raw(f"[Use] Index {index} không hợp lệ.")
+            return
+
+        item = items[index]
+        if item is None:
+            log.raw(f"[Use] Ô {index} trống.")
+            return
+
+        item_id = item['id']
+        name = item_name(item_id)
+        log.raw(f"[Use] Dùng {name} (ID={item_id}) từ bag slot {index}...")
+
+        # type=0 (normal use), where=1 (bag), index=the bag index
+        self.client.service.useItem(0, 1, index)
+
+    # ====================================================================
+    # ITEM DISPLAY
+    # ====================================================================
+
     def _format_item(self, item: dict, index: int = -1) -> str:
-        name = item_name(item['id'])
-        prefix = f"[{index}] " if index >= 0 else ""
-        item_id_str = f"[#{item['id']}] "
-        info = item.get('info', '').strip()
-        if info:
-            lines = info.split('\n')
-            opts_formatted = ("\n" + " " * (len(prefix) + len(item_id_str) + 2)).join(lines)
-            return f"  {prefix}{item_id_str}{name} x{item['quantity']}\n      {opts_formatted}"
-        return f"  {prefix}{item_id_str}{name} x{item['quantity']}"
+        return format_item_short(item, index=index)
 
     def _show_items(self):
         s = self.client.state
@@ -319,7 +400,9 @@ class ConsoleUI:
         log.raw(f"[Bag] {count} items:")
         for idx, item in enumerate(items):
             if item:
-                log.raw(self._format_item(item, idx))
+                short = format_item_short(item, index=idx)
+                log.raw(f"  {short}")
+        log.raw(f"  Dùng /item <index> để xem chi tiết")
 
     def _show_equip(self):
         s = self.client.state
@@ -332,7 +415,19 @@ class ConsoleUI:
         for i, item in enumerate(items):
             slot_name = SLOT_NAMES[i] if i < len(SLOT_NAMES) else f"Slot{i}"
             if item:
-                log.raw(f"  [{slot_name}] {self._format_item(item)}")
+                short = format_item_short(item)
+                detail = analyze_item(item)
+                stars = ""
+                if detail['star_display']:
+                    stars = f"  {detail['star_display']}"
+                log.raw(f"  [{slot_name}] {short}{stars}")
+
+                # Show options in compact form
+                if detail['options']:
+                    opts = " | ".join(detail['options'][:5])  # max 5 options per line
+                    log.raw(f"       {opts}")
+                    if len(detail['options']) > 5:
+                        log.raw(f"       ... và {len(detail['options'])-5} chỉ số khác")
             else:
                 log.raw(f"  [{slot_name}] (empty)")
 
@@ -349,16 +444,28 @@ class ConsoleUI:
         status_names = {0: "Follow", 1: "Protect", 2: "Attack", 3: "Gohome", 4: "Fusion"}
         st = pet.get('status', 0)
         log.raw(f"  Status: {status_names.get(st, st)}")
+
+        # Pet equipment with star details
         body = pet.get('items_body', [])
         if body:
             log.raw(f"  Equipment:")
             for i, item in enumerate(body):
                 if item:
-                    info = item.get('info', '').strip()
-                    line = f"    [{i}] [#{item['id']}] {item_name(item['id'])} x{item['quantity']}"
-                    if info:
-                        line += f"\n      {info}"
-                    log.raw(line)
+                    detail = analyze_item(item)
+                    short = format_item_short(item, index=i)
+                    stars = ""
+                    if detail['star_display']:
+                        stars = f"  {detail['star_display']}"
+                    log.raw(f"    {short}{stars}")
+                    if detail['options']:
+                        for opt in detail['options'][:3]:
+                            log.raw(f"      {opt}")
+                        if len(detail['options']) > 3:
+                            log.raw(f"      ...(+{len(detail['options'])-3})")
+                else:
+                    log.raw(f"    [{i}] (empty)")
+
+        # Pet skills
         skills = pet.get('skills', [])
         if skills:
             log.raw(f"  Skills:")
@@ -380,7 +487,6 @@ class ConsoleUI:
     }
 
     def _show_xmap_info(self):
-        """Hiển thị thông tin chi tiết về path xmap hiện tại."""
         s = self.client.state
         r = s.xmap_runner
 
@@ -400,7 +506,6 @@ class ConsoleUI:
             log.raw("[Xmap] Xmap chưa chạy hoặc chưa có target. Dùng /xmap <mapId> trước.")
             return
 
-        # Luôn recalculate path từ vị trí hiện tại để hiển thị thông tin chính xác
         recalc_path, astar_cost = find_path_with_cost(current_map, target_map, power=power)
         bfs_path = find_path_bfs(current_map, target_map, power=power)
         bfs_hops = len(bfs_path) - 1 if bfs_path else 0
@@ -428,7 +533,6 @@ class ConsoleUI:
             if recalc_path != bfs_path:
                 log.raw(f"  ⚠ A* chọn đường khác BFS (tối ưu cost, không nhất thiết ngắn nhất)")
 
-        # So sánh với path đang lưu (nếu khác)
         if is_running and r.path and recalc_path != r.path:
             log.raw(f"  Path lưu:  {' → '.join(str(m) for m in r.path)} (đã thay đổi do di chuyển)")
 
@@ -440,7 +544,6 @@ class ConsoleUI:
             link = get_next_link(fm, to)
             fm_name = get_map_name(fm) or f"Map {fm}"
             to_name = get_map_name(to) or f"Map {to}"
-
             if link:
                 mtype = self.MOVE_TYPE_NAMES.get(link.move_type, f"Loại {link.move_type}")
                 cost = self._get_move_cost(link.move_type)
@@ -455,10 +558,9 @@ class ConsoleUI:
         return MOVE_COST.get(move_type, 5)
 
     def _link_detail(self, link) -> str:
-        """Trả về chi tiết của link dạng string."""
         parts = []
         if link.npc_id >= 0:
-            npc_name_str = npc_name(link.npc_id) or f"NPC {link.npc_id}"
+            npc_name_str = npc_name(link.npc_id) or f"NPCBoss {link.npc_id}"
             parts.append(f"npc={npc_name_str}(ID={link.npc_id})")
         if link.menus:
             parts.append(f"menus={link.menus}")
