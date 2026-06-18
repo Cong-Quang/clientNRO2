@@ -82,6 +82,9 @@ class Service:
         msg.writeByte(type_)
         msg.writeShort(cx)
         msg.writeShort(cy)
+        from logger import log
+        data_hex = msg.getData().hex() if msg.getData() else 'empty'
+        log.debug("MOVE", f"charMove type={type_} cx={cx} cy={cy} data={data_hex}")
         self._send(msg)
 
     def chat(self, text: str):

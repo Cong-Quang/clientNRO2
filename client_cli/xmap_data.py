@@ -179,8 +179,34 @@ MAP_NAMES = {
 }
 
 
+def _strip_vietnamese_accents(s: str) -> str:
+    """Xóa dấu tiếng Việt, ví dụ: 'quỷ'/'qủy'/'quý'/'quĩ' → 'quy'"""
+    replacements = {
+        'à': 'a', 'á': 'a', 'ả': 'a', 'ã': 'a', 'ạ': 'a',
+        'â': 'a', 'ầ': 'a', 'ấ': 'a', 'ẩ': 'a', 'ẫ': 'a', 'ậ': 'a',
+        'ă': 'a', 'ằ': 'a', 'ắ': 'a', 'ẳ': 'a', 'ẵ': 'a', 'ặ': 'a',
+        'è': 'e', 'é': 'e', 'ẻ': 'e', 'ẽ': 'e', 'ẹ': 'e',
+        'ê': 'e', 'ề': 'e', 'ế': 'e', 'ể': 'e', 'ễ': 'e', 'ệ': 'e',
+        'ì': 'i', 'í': 'i', 'ỉ': 'i', 'ĩ': 'i', 'ị': 'i',
+        'ò': 'o', 'ó': 'o', 'ỏ': 'o', 'õ': 'o', 'ọ': 'o',
+        'ô': 'o', 'ồ': 'o', 'ố': 'o', 'ổ': 'o', 'ỗ': 'o', 'ộ': 'o',
+        'ơ': 'o', 'ờ': 'o', 'ớ': 'o', 'ở': 'o', 'ỡ': 'o', 'ợ': 'o',
+        'ù': 'u', 'ú': 'u', 'ủ': 'u', 'ũ': 'u', 'ụ': 'u',
+        'ư': 'u', 'ừ': 'u', 'ứ': 'u', 'ử': 'u', 'ữ': 'u', 'ự': 'u',
+        'ỳ': 'y', 'ý': 'y', 'ỷ': 'y', 'ỹ': 'y', 'ỵ': 'y',
+        'đ': 'd',
+    }
+    result = []
+    for c in s:
+        result.append(replacements.get(c, c))
+    return ''.join(result)
+
+
 def _normalize(s: str) -> str:
-    return re.sub(r'\s+', '', s.lower().strip())
+    # lowercase trước, xóa dấu tiếng Việt sau (cả uppercase lẫn lowercase đều được xử lý)
+    s = s.lower().strip()
+    s = _strip_vietnamese_accents(s)
+    return re.sub(r'\s+', '', s)
 
 
 TRAI_DAT = [42, 21, 0, 1, 2, 3, 4, 5, 6, 27, 28, 29, 30, 47, 42, 24, 53, 58, 59, 60, 61, 62, 55, 56, 54, 57]

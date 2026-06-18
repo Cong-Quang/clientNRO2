@@ -4,10 +4,14 @@ import time
 from state import GameState
 from service import Service
 from xmap_pathfinder import find_path, get_next_link, get_error_message
-from xmap_data import MapLink, is_nrd_map, is_future_map, CAPSULE_ITEM_IDS, MIN_PATH_LENGTH_FOR_CAPSULE, get_map_name, _normalize as _normalize_data
+from xmap_data import MapLink, is_nrd_map, is_future_map, CAPSULE_ITEM_IDS, MIN_PATH_LENGTH_FOR_CAPSULE, get_map_name, _normalize as _normalize_data, _strip_vietnamese_accents
+from logger import log
+
 
 def _normalize(s: str) -> str:
-    return re.sub(r'\s+', '', s.lower().strip())
+    s = s.lower().strip()
+    s = _strip_vietnamese_accents(s)
+    return re.sub(r'\s+', '', s)
 
 
 class XmapRunner:
@@ -76,9 +80,16 @@ class XmapRunner:
 
         # Track NPC interaction state (move_type=2) to prevent panel interference
         self._in_npc_interaction = False
-
+        
+        # Retry counter for map change
+        self._retry_count = 0
+        self._last_waypoint_is_offline = False
+        
     def _move_to(self, x: int, y: int):
-        """Gửi charMove với type_=1 (waypoint trên ground tile) + update local pos."""
+        """Gửi charMove (giống C# TeleportTo).
+        Gửi 3 packet charMove: target position, slightly offset, back to target.
+        Type=1 (air/fly) cho waypoint teleport.
+        """
         me = self.state.my_char
         if me is None:
             return
@@ -92,15 +103,31 @@ class XmapRunner:
         me.cy = y
         self.service.charMove(x, y, 1, type_=1)
 
-    def _request_map_change(self, is_offline: bool):
-        """Gửi request chuyển map, sleep 0.3s cho server kịp xử lý."""
-        time.sleep(0.3)
+    def _send_map_request(self, is_offline: bool):
+        """Gửi request chuyển map đến server."""
         if is_offline:
             self.service.getMapOffline()
         else:
             self.service.requestChangeMap()
         self._last_map_change_time = time.time()
         self._is_processing_map_change = True
+
+    def _waypoint_transition(self, target_x: int, target_y: int, is_offline: bool):
+        """
+        Thực hiện chuyển map qua waypoint.
+        Giống C# Enter() flow:
+        1. Gửi charMove đến waypoint (giống TeleportTo)
+        2. Đợi server xử lý (tương đương 1 game tick = 0.4s)
+        3. Gửi requestChangeMap / getMapOffline
+        """
+        # Step 1: Gửi charMove (giống C# TeleportTo)
+        self._move_to(target_x, target_y)
+        
+        # Step 2: Đợi server xử lý charMove (giống C# đợi 1 game tick)
+        time.sleep(0.4)
+        
+        # Step 3: Gửi request chuyển map
+        self._send_map_request(is_offline)
 
     def start(self, target_map: int):
         if target_map == self.state.map_id:
@@ -124,6 +151,7 @@ class XmapRunner:
         self._confirm_npc_id = -1
         self._retry_count = 0
         self._current_zone_map_id = -1
+        self._last_waypoint_is_offline = False
         self.use_capsule = True  # Reset mặc định mỗi lần start
         self._stop.clear()
         self.is_running_flag = True
@@ -163,9 +191,9 @@ class XmapRunner:
             self._retry_count = 0
             self._panel_open = False
             self._in_npc_interaction = False
+            self._last_waypoint_is_offline = False
         else:
             # Chỉ đổi zone: không reset flow, chỉ cập nhật _is_processing_map_change
-            # để tránh retry loop vô tận
             self._is_processing_map_change = False
 
     def on_capsule_map_list(self, map_names: list[str]):
@@ -173,9 +201,7 @@ class XmapRunner:
             self._capsule_map_names = map_names
 
     def on_transport_panel(self, names: list[str]):
-        """Called when CMD_MAP_TRASPORT teleport panel appears from finishUpdate.
-        Giống C#: khi panel mở, xmap phải xử lý nó bằng cách chọn destination phù hợp.
-        """
+        """Called when CMD_MAP_TRASPORT teleport panel appears from finishUpdate."""
         if self._panel_open:
             return
         self._panel_open = True
@@ -284,13 +310,11 @@ class XmapRunner:
 
             # Handle name-based NPC confirmation
             if self._confirm_npc_id != -1:
-                # Giống C# UpdateConfirmNpc: tự động gọi openMenu sau init delay
                 if not self._running_open_npc and now - self._confirm_start_time > self._confirm_init_delay:
                     self.service.openMenu(self._confirm_npc_id)
                     self._running_open_npc = True
                     self.status = "Đang mở menu NPC..."
                 if now - self._confirm_start_time > self._confirm_timeout:
-                    # Timeout - cleanup interaction flag
                     self._confirm_npc_id = -1
                     self._running_open_npc = False
                     self._in_npc_interaction = False
@@ -298,17 +322,13 @@ class XmapRunner:
                 continue
 
             # Handle transport teleport panel (CMD_MAP_TRASPORT)
-            # Chỉ xử lý panel khi KHÔNG trong NPC interaction (move_type=2)
-            # Tránh interfere với NPC đang nói chuyện
             if self._panel_open and self.path:
                 if not self._in_npc_interaction:
-                    # Cooldown để tránh xử lý lại panel ngay lập tức
                     if now - self._last_panel_handle_time > 1.0:
                         if self._handle_teleport_panel():
                             self._panel_open = False
                             self._last_panel_handle_time = now
                         else:
-                            # Không match được - clear panel để thử waypoint transition
                             self._panel_open = False
                             self.status += " (skip panel, thử waypoint)"
                 time.sleep(0.1)
@@ -325,6 +345,7 @@ class XmapRunner:
                     self._in_npc_interaction = False
                     self.is_running_flag = False
                     return
+                
                 self._is_processing_map_change = False
                 self._in_npc_interaction = False
                 self.status = f"Retry map change ({self._retry_count}/5)..."
@@ -429,8 +450,6 @@ class XmapRunner:
         if not self.use_capsule:
             return False
 
-        # Kiểm tra path có xuyên hành tinh không
-        # Nếu path chỉ trong 1 hành tinh (Fide, Cold, v.v.), capsule panel sẽ không có map phù hợp
         if not self._path_crosses_planets(path):
             return False
 
@@ -452,8 +471,6 @@ class XmapRunner:
                             self.service.requestMapSelect(j)
                             self.status = f"Capsule: teleport {target_name}"
                             return True
-                # Không match được map nào trong path với capsule panel
-                # Đóng panel bằng cách chọn [0], set use_capsule=False để tránh lặp
                 self._is_using_capsule = False
                 self._is_opening_panel = True
                 self.use_capsule = False
@@ -478,9 +495,6 @@ class XmapRunner:
         return True
 
     def _path_crosses_planets(self, path: list[int]) -> bool:
-        """Kiểm tra path có đi qua nhiều hành tinh khác nhau không.
-        Nếu path chỉ trong 1 hành tinh (vd: Fide→Fide), capsule sẽ không có ích.
-        """
         from xmap_data import TRAI_DAT, NAMEK, XAYDA, NAPPA, TUONG_LAI, COLD, THAP_LEO, MANH_VO_BT, KHI_GAS, MAP_KHAC
         planets = [
             set(TRAI_DAT), set(NAMEK), set(XAYDA), set(NAPPA),
@@ -493,7 +507,6 @@ class XmapRunner:
                 if mid in pset:
                     found_planets.add(pi)
                     break
-        # Cross-planet nếu path có >= 2 hành tinh khác nhau
         return len(found_planets) >= 2
 
     def _goto_next_map(self, current_map: int, next_map: int):
@@ -520,21 +533,11 @@ class XmapRunner:
     # WAYPOINT MATCHING BY POPUP NAME (giống C# NextMap.GetWayPoint)
     # ---------------------------------------------------------------------------
     def _find_correct_waypoint(self, wp_pos: int, dest_map: int | None = None) -> dict | None:
-        """
-        Find the correct waypoint on the current map.
-        Giống C# GetWayPoint(): match by popup name = destination map name.
-        wp_pos: -1=left, 0=center/any, 1=right
-        dest_map: destination map ID để match popup name
-        """
         wps = self.state.waypoints
         if not wps:
             return None
 
-        # Giống C#: không filter isEnter, dùng ALL waypoints từ TileMap.vGo
-        # (waypoint đến map khác có thể được đánh dấu isEnter=True)
-        # https://github.com/duyit/ModNRO/blob/main/ModNroPc/Xmap/NextMap.cs#L509-L516
-
-        # Ưu tiên 1: match bằng popup name (giống C#)
+        # Match by popup name (giống C#)
         if dest_map is not None:
             dest_name = get_map_name(dest_map)
             if dest_name:
@@ -545,8 +548,7 @@ class XmapRunner:
                     if len(matched) == 1:
                         return matched[0]
 
-                # Tier 2: partial match - nếu dest_name là substring của popupName hoặc ngược lại
-                # (dùng cho trường hợp MAP_NAMES chưa khớp chính xác với server)
+                # Partial match
                 partial_matched = []
                 for wp in wps:
                     popup = _normalize_data(wp.get('popupName', ''))
@@ -557,11 +559,9 @@ class XmapRunner:
                     if len(partial_matched) == 1:
                         return partial_matched[0]
 
-                # Tier 3: word-by-word match - nếu có ít nhất 1 từ giống nhau giữa 2 tên
-                # (vd: 'Rừng Bamboo' vs 'Rừng Tre' → match từ 'Rừng')
-                # Dùng raw words (trước normalize) vì normalize xóa hết whitespace
-                dest_name_raw = get_map_name(dest_map) if dest_map else ""
+                # Word-by-word match
                 dest_words = set()
+                dest_name_raw = get_map_name(dest_map) if dest_map else ""
                 if dest_name_raw:
                     for w in dest_name_raw.lower().split():
                         normalized = re.sub(r'\s+', '', w)
@@ -576,14 +576,14 @@ class XmapRunner:
                             normalized = re.sub(r'\s+', '', w)
                             if normalized:
                                 popup_words.add(normalized)
-                        if dest_words & popup_words:  # có từ chung
+                        if dest_words & popup_words:
                             word_matched.append(wp)
                 if word_matched:
                     wps = word_matched
                     if len(word_matched) == 1:
                         return word_matched[0]
 
-        # Chọn waypoint theo vị trí X (giống C# GetWayPoint)
+        # Select by position
         if wp_pos == -1:
             selected = min(wps, key=lambda wp: wp['minX'])
         elif wp_pos == 1:
@@ -592,17 +592,16 @@ class XmapRunner:
             mid_map = 1200
             selected = min(wps, key=lambda wp: abs((wp['minX'] + wp['maxX']) // 2 - mid_map))
 
-        # Fix: nhiều map (Núi Fide, v.v.) có nhiều waypoint exit cùng X nhưng khác Y
-        # (xếp chồng theo độ cao). Dùng Y của nhân vật để chọn đúng waypoint.
+        # Y-tiebreaker for stacked waypoints
+        sel_cx = (selected['minX'] + selected['maxX']) // 2
         same_x_wps = [wp for wp in wps if 
-            abs(wp['minX'] - selected['minX']) < 10 and 
-            abs(wp['maxX'] - selected['maxX']) < 10]
+            abs((wp['minX'] + wp['maxX']) // 2 - sel_cx) < 24]
         if len(same_x_wps) >= 2:
             me = self.state.my_char
             if me is not None:
-                # Chọn waypoint có maxY XA nhất với nhân vật (đi tiếp, không quay lại)
-                # Khi vào map từ 1 waypoint, cy ở gần waypoint đó.
-                # Nếu chọn gần nhất, sẽ quay lại waypoint vừa vào (sai).
+                elevated = [wp for wp in same_x_wps if abs(wp['maxY'] - me.cy) > 50]
+                if elevated:
+                    return max(elevated, key=lambda wp: abs(wp['maxY'] - me.cy))
                 return max(same_x_wps, key=lambda wp: abs(wp['maxY'] - me.cy))
 
         return selected
@@ -610,74 +609,31 @@ class XmapRunner:
     def _calc_target_pos(self, wp: dict, wp_pos: int = 0) -> tuple[int, int]:
         """
         Calculate target position from a waypoint.
-        Matches C# NextMap.CalculateTargetX logic:
-        - Left edge (maxX < 60): targetX = 15
-        - Right edge (minX > mapWidth - 60): targetX = mapWidth - 15
-        - Center: targetX = (minX + maxX) / 2
-        - targetY = maxY
-
-        wp_pos: direction hint (-1=prev/left, 1=next/right)
-        When 2 waypoints are stacked (same X), adds offset based on wp_pos
-        to help server distinguish which exit to use.
-        Giống C# LoadTwoWaypoints(): first=left, second=right.
+        Chọn vị trí TRONG waypoint bounds để server getWaypointPlayerIn() tìm thấy.
+        Dùng center của waypoint thay vì edge offset để đảm bảo trong bounds.
         """
         min_x = wp['minX']
         max_x = wp['maxX']
+        min_y = wp['minY']
         max_y = wp['maxY']
 
-        # Standard NRO map: 100 tiles x 24px = 2400px
-        # Use this as default instead of unreliable estimation from waypoints
-        MAP_WIDTH = 2400
+        # Luôn dùng center của waypoint - đảm bảo trong bounds [minX, maxX], [minY, maxY]
+        tx = (min_x + max_x) // 2
+        ty = (min_y + max_y) // 2
 
-        GATE_EDGE = 60
-        GATE_CENTER_OFFSET = 15
-
-        if max_x < GATE_EDGE:
-            # Waypoint sát mép TRÁI → đứng ở 15
-            tx = GATE_CENTER_OFFSET
-        elif min_x > MAP_WIDTH - GATE_EDGE:
-            # Waypoint sát mép PHẢI → đứng ở mapWidth - 15
-            tx = MAP_WIDTH - GATE_CENTER_OFFSET
-        else:
-            # Waypoint ở GIỮA → trung tâm
-            tx = (min_x + max_x) // 2
-
-        # === LoadTwoWaypoints-style offset ===
-        # Khi 2 waypoint có cùng vị trí X (stacked), server không phân biệt được
-        # C# giải quyết: đẩy player lệch hướng dựa trên prev/next
-        # Nếu đi NEXT map (wp_pos=1): đẩy về bên PHẢI
-        # Nếu đi PREV map (wp_pos=-1): đẩy về bên TRÁI
-        if wp_pos != 0:
-            all_wps = self.state.waypoints
-            if len(all_wps) >= 2:
-                # Đếm waypoint có cùng X với waypoint đã chọn
-                same_x_count = sum(1 for w in all_wps if abs(w['minX'] - min_x) < 15)
-                if same_x_count >= 2:
-                    # Có waypoint khác cùng vị trí X → cần offset
-                    # Giống C# LoadTwoWaypoints(): đẩy player lệch hướng
-                    # để server phân biệt exit nào được chọn
-                    offset = 30 if wp_pos == 1 else -30  # next=phải, prev=trái
-                    tx = max(5, min(MAP_WIDTH - 5, tx + offset))
-
-        return (tx, max_y)
+        return (tx, ty)
 
     def _handle_waypoint(self, link: MapLink):
-        """
-        Xử lý waypoint transition (giống C# LoadMap + RequestMapChange).
-        Gửi charMove(type_=1) rồi ngay lập tức gửi requestChangeMap/getMapOffline.
-        Không dùng state machine distance-check vì server overwrite local position.
-        """
         current_map = self.state.map_id
 
         if is_nrd_map(current_map):
             self._handle_nrd_waypoint(link)
             return
 
-        # Giống C# GetWayPoint: match waypoint bằng popup name của destination
         dest_name = get_map_name(link.dest)
         self.status = f"Map {current_map} → {link.dest} "
         
-        # Debug: show available exit waypoint popup names
+        # Show available exit waypoints for debug
         waypoint_info = []
         for wp in self.state.waypoints:
             if not wp.get('isEnter'):
@@ -693,21 +649,19 @@ class XmapRunner:
         target_x, target_y = self._calc_target_pos(wp, link.wp_pos)
         is_offline = wp.get('isOffline', False)
         popup_name = wp.get('popupName', '')
-        self.status += f" → '{popup_name}' ({target_x},{target_y})"
-
-        # Giống C# LoadMap: charMove + requestChangeMap nhanh chóng
-        self._move_to(target_x, target_y)
-        self._request_map_change(is_offline)
+        
+        # Debug: log waypoint bounds và target
+        log.info("XMAP", f"Waypoint '{popup_name}' bounds=({wp['minX']},{wp['minY']})-({wp['maxX']},{wp['maxY']}) target=({target_x},{target_y}) isOffline={is_offline}")
+        self.status += f" → '{popup_name}' ({target_x},{target_y}) offline={is_offline}"
+        
+        self._last_waypoint_is_offline = is_offline
+        
+        # Thực hiện waypoint transition: charMove + delay + request
+        self._waypoint_transition(target_x, target_y, is_offline)
 
     def _handle_teleport_panel(self) -> bool:
-        """
-        Handle teleport transport panel (CMD_MAP_TRASPORT).
-        Giống C# TrySelectCapsuleDestination:
-        tìm map trong path (ưu tiên cuối path) và chọn từ panel.
-        """
         if not self._panel_map_names or not self.path:
             return True
-        # Iterate from END of path to start (closer = better)
         for i in range(len(self.path) - 1, 0, -1):
             mid = self.path[i]
             target_name = get_map_name(mid)
@@ -721,15 +675,11 @@ class XmapRunner:
                     self._is_processing_map_change = True
                     self._last_map_change_time = time.time()
                     return True
-        # No exact match - try reverse containment (panel name inside map name)
-        # Panel options have format "<MapName> <PlanetName>" e.g. "Rừng Bamboo Trái Đất"
         path_names = set()
         for mid in self.path:
             name = get_map_name(mid)
             if name:
                 path_names.add(name.lower())
-        
-        # Check if any panel option name is contained in a path map name (reverse of Tier 1)
         for j, panel_name in enumerate(self._panel_map_names):
             panel_lower = panel_name.lower()
             for pmap_name in path_names:
@@ -739,9 +689,6 @@ class XmapRunner:
                     self._is_processing_map_change = True
                     self._last_map_change_time = time.time()
                     return True
-
-        # Fallback: chọn [0] để đóng panel, server sẽ đưa về nhà
-        # (bắt buộc phải chọn vì không có cách nào close panel)
         self.status = f"Panel: ko match, chọn [0] để đóng"
         self.service.requestMapSelect(0)
         self._is_processing_map_change = True
@@ -749,23 +696,20 @@ class XmapRunner:
         return True
 
     def _handle_nrd_waypoint(self, link: MapLink):
-        """Handle waypoint transitions in NRD maps (85-91)."""
         if link.wp_pos == 2:
             npc_nrd = self._find_nrd_npc()
             if npc_nrd:
                 self._move_to(npc_nrd['x'], npc_nrd['y'] - 3)
-                self._request_map_change(False)
+                self._send_map_request(False)
                 return
 
-        # NRD fallback: xài waypoint thường
         dest_name = get_map_name(link.dest)
         wp = self._find_correct_waypoint(link.wp_pos, link.dest)
         if wp:
             target_x, target_y = self._calc_target_pos(wp)
             popup_name = wp.get('popupName', '')
             self.status += f" → '{popup_name}' ({target_x},{target_y})"
-            self._move_to(target_x, target_y)
-            self._request_map_change(wp.get('isOffline', False))
+            self._waypoint_transition(target_x, target_y, wp.get('isOffline', False))
 
     def _find_nrd_npc(self):
         for npc in self.state.npcs:
@@ -777,11 +721,6 @@ class XmapRunner:
     # NPC TRANSITIONS
     # ---------------------------------------------------------------------------
     def _handle_npc(self, link: MapLink):
-        """
-        Handle NPC-based map transitions.
-        move_type=1: name-based menu selection (like C# HandleNpcMenuInteraction)
-        move_type=2: index-based menu selection (like C# HandleNpcIndexInteraction)
-        """
         if link.npc_id < 0:
             return
         self.status += f" → NPC {link.npc_id}"
@@ -791,19 +730,15 @@ class XmapRunner:
         self._in_npc_interaction = True
 
         if link.move_type == 2:
-            # Index-based: send confirmMenu directly like C# HandleNpcIndexInteraction
-            # This sends openMenu + confirmMenu immediately, no waiting for dialog
             self.service.openMenu(link.npc_id)
             time.sleep(0.1)
             for idx in link.menus:
                 self.service.confirmMenu(link.npc_id, idx)
                 time.sleep(0.1)
-            # Set delay to prevent immediate retry (like C# SetNpcIndexActionTime)
             self._last_npc_index_time = time.time()
             self._last_map_change_time = time.time()
             self._is_processing_map_change = True
         else:
-            # Name-based: wait for NPC dialog and match by text
             self._confirm_npc_id = link.npc_id
             self._confirm_menus = link.menus[:]
             self._confirm_menus_sub = link.menus_sub[:]

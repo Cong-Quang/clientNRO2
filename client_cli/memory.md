@@ -452,3 +452,43 @@ Tìm thấy tên map chính thức trong `srcServer/nro/models/map/service/Chang
 
 ### Các file đã sửa
 - `xmap_data.py`: MAP_NAMES 66,67,73-83 (tên thật từ server source)
+
+## Session 10 - Fix waypoint transition (enter state machine) + Vietnamese diacritic normalization
+
+### Bug: Server từ chối requestChangeMap ở một số map
+
+**Vấn đề:**
+- Trên map 70→71, requestChangeMap bị server từ chối dù charMove đã gửi đúng vị trí
+- Enter state machine phức tạp (2 phase + retry) không giúp ích gì
+
+**Phân tích server source (`Controller.java`):**
+- `changeMapWaypoint()` gọi `getWaypointPlayerIn(player)` — kiểm tra `player.location.x/y` có trong `[minX,maxX]`×`[minY,maxY]` của waypoint không
+- charMove handler (`case -7`) đọc type byte + cx (short) + cy (short, optional) → gọi `PlayerService.playerMove()` → cập nhật `player.location`
+- Cả `CMD_MAP_CHANGE (-23)` và `CMD_MAP_OFFLINE (-33)` đều gọi `changeMapWaypoint()`
+
+**Fix 1: `_calc_target_pos` center-based (quan trọng)**
+- **Trước**: edge-adjusted target (15 nếu maxX<60, mapWidth-15 nếu minX>mapWidth-60). Vị trí có thể **NGOÀI** waypoint bounds!
+- **Sau**: luôn dùng center `(minX+maxX)//2, (minY+maxY)//2` — **đảm bảo trong bounds**
+
+**Fix 2: Bỏ enter state machine**
+- **Trước**: state machine 2 phase (attempts=0 và attempts=1) với 0.4s delay
+- **Sau**: `_waypoint_transition(target_x, target_y, is_offline)` — charMove → sleep 0.4s → send request
+- Đơn giản hơn, dễ debug hơn
+
+### Bug: Loop 63↔65 do diacritic mismatch trong popup name matching
+
+**Vấn đề:**
+- Server gửi popup name `'Trại qủy già'` (dấu **hỏi**)
+- `MAP_NAMES[66] = "Trại quỷ già"` (dấu **ngã**)
+- `_normalize()` chỉ lowercase + xóa space → `'trạiqủygià'` ≠ `'trạiquỷgià'` → không match
+- Rơi xuống word-matching → chọn waypoint `'Núi cây quỷ'` (backwards) thay vì `'Trại qủy già'` (forward) → loop vô tận 63↔65
+
+**Fix: `xmap_data.py` + `xmap_runner.py`**
+- Thêm `_strip_vietnamese_accents(s)`: xóa toàn bộ dấu tiếng Việt (quỷ/qủy/quý/quĩ → quy)
+- Cập nhật `_normalize(s)`: `.lower().strip()` → `_strip_vietnamese_accents()` → whitespace removal
+- `xmap_runner.py` import `_strip_vietnamese_accents` từ `xmap_data` (không duplicate code)
+
+### Các file đã sửa
+- `xmap_data.py`: thêm `_strip_vietnamese_accents()`, cập nhật `_normalize()`
+- `xmap_runner.py`: import + dùng `_strip_vietnamese_accents`, bỏ enter state machine, `_waypoint_transition` đơn giản, `_calc_target_pos` center-based
+- `memory.md`: session này
