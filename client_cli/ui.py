@@ -8,8 +8,13 @@ from item_detail import format_item_detail, format_item_short, find_item_by_id, 
 
 
 class ConsoleUI:
-    def __init__(self, client: GameClient):
+    def __init__(self, client: GameClient, initial_commands: list[str] = None,
+                 auto_exit: bool = False, username: str = '1', password: str = '1'):
         self.client = client
+        self.initial_commands = initial_commands or []
+        self.auto_exit = auto_exit
+        self._username = username
+        self._password = password
 
     def run(self):
         log.auto_config()
@@ -19,8 +24,34 @@ class ConsoleUI:
             log.raw("=== NRO CLI Client ===")
         self._wait_ready()
         self._send_auto_login()
+
+        # Wait for login to complete and character to be in game
+        self._wait_in_game()
+
+        # Execute initial commands from --cmd args
+        if self.initial_commands:
+            log.raw("")
+            log.raw(f"[CLI] Thuc thi {len(self.initial_commands)} lenh tu command-line...")
+            for cmd_str in self.initial_commands:
+                log.raw(f"[CLI] > {cmd_str}")
+                self._handle_input(cmd_str.strip())
+                import time
+                time.sleep(0.3)
+            if self.auto_exit:
+                log.raw("[CLI] Da thuc thi xong, thoat.")
+                return
+
         self._print_help()
         self._input_loop()
+
+    def _wait_in_game(self, timeout: float = 20.0):
+        """Cho den khi nhan vat vao game + co map data hoac timeout."""
+        import time
+        for _ in range(int(timeout / 0.2)):
+            s = self.client.state
+            if s.in_game and s.map_id >= 0:
+                return
+            time.sleep(0.2)
 
     def _wait_ready(self, timeout: float = 3.0):
         for _ in range(int(timeout / 0.1)):
@@ -32,18 +63,8 @@ class ConsoleUI:
             sys.exit(1)
 
     def _send_auto_login(self):
-        args = self._parse_args()
-        log.info("LOGIN", f"Logging in as {args.username}...")
-        self.client.service.login(args.username, args.password)
-
-    def _parse_args(self):
-        import argparse
-        parser = argparse.ArgumentParser(description='NRO CLI Client')
-        parser.add_argument('--host', default='127.0.0.1')
-        parser.add_argument('--port', type=int, default=14445)
-        parser.add_argument('--username', default='1')
-        parser.add_argument('--password', default='1')
-        return parser.parse_args()
+        log.info("LOGIN", f"Logging in as {self._username}...")
+        self.client.service.login(self._username, self._password)
 
     def _print_help(self):
         log.raw("  /login <u> <p>   /select <name>")

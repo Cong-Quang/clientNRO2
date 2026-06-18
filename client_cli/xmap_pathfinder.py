@@ -246,7 +246,7 @@ def find_path_with_cost(current_map: int, target_map: int, power: int = 0, task_
 def get_error_message(target_map: int, current_map: int, power: int = 0, task_id: int = 0, has_clan: bool = False) -> str:
     if _required_power(target_map) > 0 and power < _required_power(target_map):
         need = _required_power(target_map)
-        return f"Yêu cầu sức mạnh tối thiểu: {need:N0}."
+        return f"Yêu cầu sức mạnh tối thiểu: {need:,}."
     if is_future_map(target_map) and task_id <= 24:
         return "Hãy hoàn thành nhiệm vụ để vào map này."
     if requires_clan(target_map) and not has_clan:
