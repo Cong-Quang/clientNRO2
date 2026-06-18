@@ -24,6 +24,7 @@ class Char:
         self.exp = 0
         self.cPower = 0
         self.cStamina = 0
+        self.cMaxStamina = 0
         self.xu = 0
         self.luong = 0
         self.luongKhoa = 0

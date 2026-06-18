@@ -29,9 +29,23 @@ class GameClient(MessageHandler):
         self.interaction_handler = InteractionHandler(self.state)
         self.social_handler = SocialHandler(self.state)
 
+        # Auto modules
+        from auto_vutdo import AutoVutDo
+        from auto_train import AutoTrain
+        from auto_skill import AutoSkill
+        from auto_pick import AutoPick
+        from auto_boss import AutoBoss
+        self.state.auto_vutdo = AutoVutDo(self.state, self.service)
+        self.state.auto_train = AutoTrain(self.state, self.service)
+        self.state.auto_skill = AutoSkill(self.state, self.service)
+        self.state.auto_pick = AutoPick(self.state, self.service)
+        self.state.auto_boss = AutoBoss(self.state, self.service)
+
         self._dispatcher = self._build_dispatcher()
         self._xmap_updater_running = False
+        self._auto_updater_running = False
         self._start_xmap_updater()
+        self._start_auto_updater()
 
     def _start_xmap_updater(self):
         def _loop():
@@ -46,7 +60,28 @@ class GameClient(MessageHandler):
                     pass
                 time.sleep(0.5)
         self._xmap_updater_running = True
-        import threading
+        t = threading.Thread(target=_loop, daemon=True)
+        t.start()
+
+    def _start_auto_updater(self):
+        def _loop():
+            import time
+            while self._auto_updater_running:
+                try:
+                    if self.state.auto_vutdo:
+                        self.state.auto_vutdo.update()
+                    if self.state.auto_train:
+                        self.state.auto_train.update()
+                    if self.state.auto_skill:
+                        self.state.auto_skill.update()
+                    if self.state.auto_pick:
+                        self.state.auto_pick.update()
+                    if self.state.auto_boss:
+                        self.state.auto_boss.update()
+                except Exception:
+                    pass
+                time.sleep(0.5)
+        self._auto_updater_running = True
         t = threading.Thread(target=_loop, daemon=True)
         t.start()
 

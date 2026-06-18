@@ -43,21 +43,45 @@ class WorldHandler:
                 'isEnter': isEnter, 'isOffline': isOffline, 'popupName': popupName,
             })
 
-        # skip mobs
+        # parse mobs
         mob_count = msg.readUnsignedByte()
-        for _ in range(mob_count):
-            for _ in range(5):
-                msg.readBoolean()
-            msg.readByte()
-            msg.readByte()
-            msg.readInt()
-            msg.readByte()
-            msg.readInt()
-            msg.readShort()
-            msg.readShort()
-            msg.readByte()
-            msg.readByte()
-            msg.readBoolean()
+        self.state.mobs = []
+        for mob_idx in range(mob_count):
+            try:
+                flags = [msg.readBoolean() for _ in range(5)]
+                template_id = msg.readByte()
+                sys = msg.readByte()
+                hp = msg.readInt()
+                level = msg.readByte()
+                max_hp = msg.readInt()
+                x = msg.readShort()
+                y = msg.readShort()
+                status = msg.readByte()
+                level_boss = msg.readByte()
+                is_mob_me = msg.readBoolean()
+                self.state.mobs.append({
+                    'id': mob_idx,
+                    'templateId': template_id,
+                    'sys': sys,
+                    'hp': hp,
+                    'maxHp': max_hp,
+                    'level': level,
+                    'x': x,
+                    'y': y,
+                    'xFirst': x,
+                    'yFirst': y,
+                    'status': status,
+                    'levelBoss': level_boss,
+                    'isMobMe': is_mob_me,
+                    'isDisable': flags[0],
+                    'isDontMove': flags[1],
+                    'isFire': flags[2],
+                    'isIce': flags[3],
+                    'isWind': flags[4],
+                })
+            except Exception as e:
+                log.debug("MOB", f"Parse mob {mob_idx} error: {e}")
+                break
 
         msg.readByte()  # separator
 
@@ -75,7 +99,30 @@ class WorldHandler:
                 'x': cx, 'y': cy, 'avatar': avatar,
             })
 
-        # skip items, bg items, eff items, remaining bytes
+        # parse items on ground
+        try:
+            item_count = msg.readUnsignedByte()
+            self.state.items_map = []
+            for _ in range(item_count):
+                item_map_id = msg.readShort()
+                item_temp_id = msg.readShort()
+                x = msg.readShort()
+                y = msg.readShort()
+                player_id = msg.readInt()
+                r = 0
+                if player_id == -2:
+                    r = msg.readShort()
+                self.state.items_map.append({
+                    'itemMapID': item_map_id,
+                    'templateId': item_temp_id,
+                    'x': x,
+                    'y': y,
+                    'playerId': player_id,
+                    'r': r,
+                })
+        except Exception:
+            log.debug("ITEM", "No items on ground or parse error")
+        # skip bg items, eff items, remaining bytes
         self.state.current_npc_id = 0
         log.info("MAP", f"{self.state.map_name}({self.state.map_id}) zone={self.state.zone_id} npcs={npc_count}")
         log.show_status(f"Map:{self.state.map_id} Z:{self.state.zone_id} Players:{len(self.state.players)}")

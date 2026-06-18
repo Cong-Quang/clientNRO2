@@ -34,7 +34,7 @@ class XmapRunner:
         self.map_delay = 1.5
 
         self._last_update = 0.0
-        self._update_interval = 0.4
+        self._update_interval = 0.2
         self._last_error_time = 0.0
         self._error_cooldown = 1.0
         self._last_processed_map = -1
@@ -117,14 +117,14 @@ class XmapRunner:
         Thực hiện chuyển map qua waypoint.
         Giống C# Enter() flow:
         1. Gửi charMove đến waypoint (giống TeleportTo)
-        2. Đợi server xử lý (tương đương 1 game tick = 0.4s)
+        2. Đợi server xử lý (tương đương 1 game tick = 0.2s)
         3. Gửi requestChangeMap / getMapOffline
         """
         # Step 1: Gửi charMove (giống C# TeleportTo)
         self._move_to(target_x, target_y)
         
         # Step 2: Đợi server xử lý charMove (giống C# đợi 1 game tick)
-        time.sleep(0.4)
+        time.sleep(0.2)
         
         # Step 3: Gửi request chuyển map
         self._send_map_request(is_offline)
@@ -138,7 +138,7 @@ class XmapRunner:
 
         if self._thread and self._thread.is_alive():
             self.stop()
-            time.sleep(0.5)
+            time.sleep(0.2)
         self.target_map = target_map
         self.path = []
         self.current_step = 0
@@ -757,9 +757,9 @@ class XmapRunner:
             self.status = f"Không có item {link.item_id} trong balo"
             return
         self.service.useItem(0, 1, -1, link.item_id)
-        time.sleep(0.5)
+        time.sleep(0.2)
 
     def _handle_walk(self, link: MapLink):
         self.status += f" → walk ({link.walk_x},{link.walk_y})"
         self.service.charMove(link.walk_x, link.walk_y, 1)
-        time.sleep(0.5)
+        time.sleep(0.2)

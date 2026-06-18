@@ -181,6 +181,7 @@ class InteractionHandler:
 
     def handle_open_ui_zone(self, msg: Message):
         count = msg.readByte()
+        self.state.zone_count = count
         log.info("UI", f"Zone list ({count} zones)")
 
     def handle_open_ui_shop(self, msg: Message):

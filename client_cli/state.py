@@ -23,6 +23,14 @@ class GameState:
         self.map_transport_list: list[str] = []
         self.waypoints: list[dict] = []
         self.xmap_runner = None
+        # Auto modules
+        self.auto_train = None
+        self.auto_vutdo = None
+        self.auto_skill = None
+        self.auto_pick = None
+        self.auto_boss = None
+        self.zone_count = 0
+        self.items_map: list[dict] = []
 
     def add_player(self, pid: int, data: dict):
         self.players[pid] = data

@@ -49,25 +49,43 @@ class ConsoleUI:
         log.raw("  /login <u> <p>   /select <name>")
         log.raw("  /chat <t>        /move <x> <y>")
         log.raw("  /useitem <t> <w> <i>  /pick <id>")
-        log.raw("  /npcmenu <id>    /menu <opt>  (chọn option NPC)")
+        log.raw("  /npcmenu <id>    /menu <opt>")
         log.raw("  /zone <id>       /changemap")
-        log.raw("  /skill <id>      /buy <t> <id> [qty]  (t=0:vàng,1:ngọc)")
+        log.raw("  /skill <id>      /buy <t> <id> [qty]")
         log.raw("  /sale <a> <t> <id>  /task <n> <m> [o]")
-        log.raw("  /players  /info  /map  /npcs  /items  /equip  /pet")
-        log.raw("  /item <idx>      /finditem <id>  /useitem <idx>")
-        log.raw("  /selectmap <n>  (chọn map khi dùng capsule)")
-        log.raw("  /xmap <mapId>   /xmapstop   /xmapmenu   /xmapsettings   /xmapinfo")
+        log.raw("  /players  /info  /map  /npcs  /mobs")
+        log.raw("  /items  /equip  /pet  /item <idx>  /finditem <id>")
+        log.raw("  /selectmap <n>   /xmap <mapId>   /xmapstop")
         log.raw("  /heal  /gocit  /wake  /log <cat> on|off|debug")
-        log.raw("  /log all on|off|debug     /quit\n")
+        log.raw("  === AUTO ===")
+        log.raw("  /autotrain on|off  /trainmob all|add <id>|list|clear")
+        log.raw("  /goback on|off     /autozone on|off|spam")
+        log.raw("  /autoskill attack  /autoskill list  /autoskill all")
+        log.raw("  /autoskill <slot> on|off|delay <ms>|freeze|set <id> [name]")
+        log.raw("  /autopick on|off     /autopick all|list|distance|teleport")
+        log.raw("  /autopick add|delete <id>|clear|by_list")
+        log.raw("  /vutdo on|off        /vutdo add|delete|list|clear")
+        log.raw("  /autoboss on|off        /autoboss do|gim|tele|attack")
+        log.raw("  /autoboss list           /autoboss add|remove <name>|clear")
+        log.raw("  /quit\n")
 
     def _input_loop(self):
         while self.client.session.isConnected():
             try:
                 s = self.client.state
                 npc_id = s.current_npc_id
+                auto_tags = []
+                if s.auto_train and s.auto_train.enabled:
+                    auto_tags.append("TRAIN")
+                if s.auto_vutdo and s.auto_vutdo.enabled:
+                    auto_tags.append("VUT")
+                if s.auto_boss and (s.auto_boss.do_boss or s.auto_boss.gim_boss or s.auto_boss.tele_boss or s.auto_boss.attack_boss):
+                    auto_tags.append("BOSS")
                 if s.xmap_runner and s.xmap_runner.is_running():
                     st = s.xmap_runner.status
                     prompt = f"xmap({st})> " if st else "xmap> "
+                elif auto_tags:
+                    prompt = f"[{' '.join(auto_tags)}]> "
                 elif npc_id:
                     prompt = f"npc({npc_id})> "
                 else:
@@ -104,6 +122,9 @@ class ConsoleUI:
         if cmd == '/npcs':
             self._show_npcs()
             return
+        if cmd == '/mobs':
+            self._show_mobs()
+            return
         if cmd == '/players':
             self._show_players()
             return
@@ -138,6 +159,35 @@ class ConsoleUI:
             self._handle_log(parts)
             return
 
+        # === AUTO COMMANDS ===
+        if cmd == '/autotrain':
+            self._handle_autotrain(parts)
+            return
+        if cmd == '/trainmob':
+            self._handle_trainmob(parts)
+            return
+        if cmd == '/goback':
+            self._handle_goback(parts)
+            return
+        if cmd == '/autozone':
+            self._handle_autozone(parts)
+            return
+        if cmd == '/autoskill':
+            self._handle_autoskill(parts)
+            return
+        if cmd == '/vutdo':
+            self._handle_vutdo(parts)
+            return
+        if cmd == '/autopick':
+            self._handle_autopick(parts)
+            return
+        if cmd == '/picklist':
+            self._handle_picklist(parts)
+            return
+        if cmd == '/autoboss':
+            self._handle_autoboss(parts)
+            return
+
         # === XMAP COMMANDS ===
         if cmd == '/xmap' and len(parts) >= 2:
             from xmap_runner import XmapRunner
@@ -147,10 +197,10 @@ class ConsoleUI:
             if cl.state.xmap_runner is None:
                 cl.state.xmap_runner = XmapRunner(cl.state, cl.service)
             if cl.state.xmap_runner.is_running():
-                log.raw(f"Xmap đang chạy, dùng /xmapstop để dừng")
+                log.raw("Xmap dang chay, dung /xmapstop de dung")
                 return
             if target == cl.state.map_id:
-                log.raw(f"Đã đến map {target}!")
+                log.raw(f"Da den map {target}!")
                 return
             me = cl.state.my_char
             power = me.cPower if me else 0
@@ -160,16 +210,16 @@ class ConsoleUI:
                 log.raw(f"Xmap: {err}")
                 return
             cl.state.xmap_runner.start(target)
-            log.raw(f"Xmap: bắt đầu đi đến map {target}")
+            log.raw(f"Xmap: bat dau di den map {target}")
             return
         if cmd == '/xmapstop':
             if self.client.state.xmap_runner:
                 self.client.state.xmap_runner.stop()
-            log.raw("Xmap: đã dừng")
+            log.raw("Xmap: da dung")
             return
         if cmd == '/xmapmenu':
             from xmap_data import PLANETS
-            log.raw("Chọn hành tinh (dùng /xmap <id> trực tiếp hoặc xem danh sách):")
+            log.raw("Chon hanh tinh (dung /xmap <id> truc tiep hoac xem danh sach):")
             for name, maps in PLANETS.items():
                 ids = ', '.join(str(m) for m in maps)
                 log.raw(f"  {name}: {ids}")
@@ -179,9 +229,9 @@ class ConsoleUI:
             if r:
                 r.eat_chicken = not r.eat_chicken
                 r.use_capsule = not r.use_capsule if len(parts) > 1 and parts[1] == 'capsule' else r.use_capsule
-                log.raw(f"Ăn đùi gà: {'ON' if r.eat_chicken else 'OFF'} | Capsule: {'ON' if r.use_capsule else 'OFF'}")
+                log.raw(f"An dui ga: {'ON' if r.eat_chicken else 'OFF'} | Capsule: {'ON' if r.use_capsule else 'OFF'}")
             else:
-                log.raw("Xmap chưa được khởi tạo, dùng /xmap <id> trước")
+                log.raw("Xmap chua duoc khoi tao, dung /xmap <id> truoc")
             return
         if cmd == '/xmapinfo':
             self._show_xmap_info()
@@ -208,8 +258,8 @@ class ConsoleUI:
                 npc_id = int(parts[1])
                 if not any(n['tempId'] == npc_id for n in c.state.npcs):
                     found = npc_name(npc_id)
-                    log.raw(f"[NPC] {found} (ID={npc_id}) không có ở map này")
-                    log.raw(f"  Dùng /npcs để xem NPC hiện có")
+                    log.raw(f"[NPC] {found} (ID={npc_id}) khong co o map nay")
+                    log.raw(f"  Dung /npcs de xem NPC hien co")
                 else:
                     c.service.openMenu(npc_id)
             elif cmd == '/menu' and len(parts) == 2:
@@ -242,7 +292,7 @@ class ConsoleUI:
                     c.service.requestMapSelect(idx)
                     c.state.map_transport_list.clear()
                 else:
-                    log.raw(f"Chọn từ 0 đến {len(c.state.map_transport_list)-1}")
+                    log.raw(f"Chon tu 0 den {len(c.state.map_transport_list)-1}")
             else:
                 log.raw(f"Unknown: {cmd}  (/help)")
         except (IndexError, ValueError):
@@ -270,6 +320,308 @@ class ConsoleUI:
             log.raw(f"[LOG] {cat} set to {level_str}")
             return
         log.raw("Usage: /log <cat> on|off|debug   or   /log list")
+
+    # ====================================================================
+    # AUTO COMMANDS
+    # ====================================================================
+
+    def _handle_autotrain(self, parts):
+        """Handle /autotrain [on|off|hpabove <n>|hpbelow <n>|minmp <n>]"""
+        t = self.client.state.auto_train
+        if not t:
+            log.raw("[Train] AutoTrain chua duoc khoi tao")
+            return
+
+        if len(parts) == 1:
+            # Toggle
+            enabled = t.toggle()
+            log.raw(f"[Train] Auto Train: {'BAT' if enabled else 'TAT'}")
+            return
+
+        sub = parts[1].lower()
+        if sub == 'on':
+            t.enabled = True
+            log.raw("[Train] Auto Train: BAT")
+        elif sub == 'off':
+            t.enabled = False
+            t._current_mob_id = -1
+            log.raw("[Train] Auto Train: TAT")
+        elif sub == 'hpabove' and len(parts) >= 3:
+            t.set_hp_above(int(parts[2]))
+        elif sub == 'hpbelow' and len(parts) >= 3:
+            t.set_hp_below(int(parts[2]))
+        elif sub == 'minmp' and len(parts) >= 3:
+            t.set_min_mp(int(parts[2]))
+        else:
+            log.raw("Usage: /autotrain [on|off|hpabove <n>|hpbelow <n>|minmp <n>]")
+
+    def _handle_trainmob(self, parts):
+        """Handle /trainmob all|add <id>|list|clear"""
+        t = self.client.state.auto_train
+        if not t:
+            log.raw("[Train] AutoTrain chua duoc khoi tao")
+            return
+
+        if len(parts) < 2:
+            log.raw("Usage: /trainmob all|add <id>|list|clear")
+            return
+
+        sub = parts[1].lower()
+        if sub == 'all':
+            t.train_all_mobs()
+        elif sub == 'add' and len(parts) >= 3:
+            t.add_mob(int(parts[2]))
+        elif sub == 'list':
+            t.list_mobs()
+        elif sub == 'clear':
+            t.clear_mobs()
+        else:
+            log.raw("Usage: /trainmob all|add <id>|list|clear")
+
+    def _handle_goback(self, parts):
+        """Handle /goback [on|off|coord]"""
+        t = self.client.state.auto_train
+        if not t:
+            log.raw("[Train] AutoTrain chua duoc khoi tao")
+            return
+
+        if len(parts) < 2:
+            t.toggle_goback()
+            return
+
+        sub = parts[1].lower()
+        if sub == 'on':
+            t.goback_enabled = True
+            log.raw("[Train] Goback: BAT")
+        elif sub == 'off':
+            t.goback_enabled = False
+            log.raw("[Train] Goback: TAT")
+        elif sub == 'coord':
+            t.toggle_goback_coord()
+        else:
+            log.raw("Usage: /goback [on|off|coord]")
+
+    def _handle_autozone(self, parts):
+        """Handle /autozone [on|off|spam]"""
+        t = self.client.state.auto_train
+        if not t:
+            log.raw("[Train] AutoTrain chua duoc khoi tao")
+            return
+
+        if len(parts) < 2:
+            t.toggle_auto_zone()
+            return
+
+        sub = parts[1].lower()
+        if sub == 'on':
+            t.auto_change_zone = True
+            t.spam_change_zone = False
+            log.raw("[Train] Auto doi khu: BAT")
+        elif sub == 'off':
+            t.auto_change_zone = False
+            t.spam_change_zone = False
+            log.raw("[Train] Auto doi khu: TAT")
+        elif sub == 'spam':
+            t.spam_change_zone = True
+            t.auto_change_zone = False
+            log.raw("[Train] Spam doi khu: BAT")
+        else:
+            log.raw("Usage: /autozone [on|off|spam]")
+
+    def _handle_autoskill(self, parts):
+        """Handle /autoskill [attack|list|<slot> on|off|delay <ms>|freeze|set <id> [name]]"""
+        sk = self.client.state.auto_skill
+        if not sk:
+            log.raw("[Skill] AutoSkill chua duoc khoi tao")
+            return
+
+        if len(parts) < 2:
+            # Toggle auto attack
+            sk.toggle_auto_attack()
+            return
+
+        sub = parts[1].lower()
+
+        if sub == 'attack':
+            sk.toggle_auto_attack()
+        elif sub == 'list':
+            sk.list_skills()
+        elif sub == 'shield':
+            sk.toggle_auto_shield()
+        elif sub == 'all':
+            # Bật/tắt tất cả slot
+            for i in range(sk.MAX_SKILL_SLOTS):
+                sk.auto_skills[i] = not sk.auto_skills[i]
+            log.raw("[Skill] Da toggle tat ca slot")
+        elif sub.isdigit() or (len(parts) >= 3 and parts[1].isdigit()):
+            # /autoskill <slot> <subcommand>
+            slot = int(parts[1])
+            if slot < 0 or slot >= sk.MAX_SKILL_SLOTS:
+                log.raw(f"[Skill] Slot phai tu 0 den {sk.MAX_SKILL_SLOTS-1}")
+                return
+
+            if len(parts) < 3:
+                # Toggle slot
+                sk.toggle_slot(slot)
+                return
+
+            action = parts[2].lower()
+            if action == 'on':
+                sk.auto_skills[slot] = True
+                sid = sk.skill_ids[slot]
+                name = sk.skill_names[slot] or (f"Skill_{sid}" if sid else f"Slot {slot}")
+                log.raw(f"[Skill] Auto [{slot}] {name}: BAT")
+            elif action == 'off':
+                sk.auto_skills[slot] = False
+                log.raw(f"[Skill] Auto [{slot}]: TAT")
+            elif action == 'delay' and len(parts) >= 4:
+                sk.set_delay(slot, int(parts[3]))
+            elif action == 'freeze':
+                sk.toggle_freeze(slot)
+            elif action == 'set' and len(parts) >= 4:
+                skill_id = int(parts[3])
+                name = ' '.join(parts[4:]) if len(parts) > 4 else ""
+                sk.configure_slot(slot, skill_id, name)
+            else:
+                log.raw(f"Usage: /autoskill {slot} on|off|delay <ms>|freeze|set <id> [name]")
+        else:
+            log.raw("Usage: /autoskill [attack|list|shield|all|<slot> ...]")
+
+    # ====================================================================
+    # AUTO PICK
+    # ====================================================================
+
+    def _handle_autopick(self, parts):
+        """Handle /autopick [on|off|all|by_list|list|distance <n>|teleport|add <id>|delete <id>|clear]"""
+        p = self.client.state.auto_pick
+        if not p:
+            log.raw("[Pick] AutoPick chua duoc khoi tao")
+            return
+
+        if len(parts) < 2:
+            p.toggle()
+            return
+
+        sub = parts[1].lower()
+        if sub == 'on':
+            if not p.enabled:
+                p.toggle()
+        elif sub == 'off':
+            if p.enabled:
+                p.toggle()
+        elif sub == 'all':
+            p.toggle_pick_all()
+        elif sub == 'list':
+            log.raw(f"[Pick] Trang thai: {'ON' if p.enabled else 'OFF'}")
+            log.raw(f"  Nhat tat ca: {'ON' if p.pick_all else 'OFF'}")
+            log.raw(f"  Nhat theo danh sach: {'ON' if p.pick_by_list else 'OFF'}")
+            log.raw(f"  Dich chuyen den item: {'ON' if p.teleport_to_item else 'OFF'}")
+            log.raw(f"  Khoang cach: {p.max_distance}px")
+            log.raw(f"  So luong item trong danh sach: {len(p.pick_list)}")
+            if p.pick_list:
+                log.raw("  Dung /picklist de xem chi tiet")
+        elif sub == 'distance' and len(parts) >= 3:
+            try:
+                d = int(parts[2])
+                p.set_distance(d)
+            except ValueError:
+                log.raw("[Pick] So khong hop le")
+        elif sub == 'teleport':
+            p.toggle_teleport()
+        elif sub == 'add' and len(parts) >= 3:
+            try:
+                item_id = int(parts[2])
+                p.add_to_list(item_id)
+            except ValueError:
+                log.raw("[Pick] ID khong hop le")
+        elif sub == 'delete' and len(parts) >= 3:
+            try:
+                item_id = int(parts[2])
+                p.remove_from_list(item_id)
+            except ValueError:
+                log.raw("[Pick] ID khong hop le")
+        elif sub == 'clear':
+            p.clear_list()
+        elif sub == 'by_list':
+            p.toggle_pick_by_list()
+        else:
+            log.raw("Usage: /autopick [on|off|all|by_list|list|distance <n>|teleport|add <id>|delete <id>|clear]")
+
+    def _handle_picklist(self, parts):
+        """Handle /picklist - Xem danh sach item duoc nhat"""
+        p = self.client.state.auto_pick
+        if not p:
+            log.raw("[Pick] AutoPick chua duoc khoi tao")
+            return
+        p.list_items()
+
+    # ====================================================================
+    # AUTO BOSS
+    # ====================================================================
+
+    def _handle_autoboss(self, parts):
+        """Handle /autoboss [on|off|do|gim|tele|attack|list|add <name>|remove <name>|clear]"""
+        b = self.client.state.auto_boss
+        if not b:
+            log.raw("[Boss] AutoBoss chua duoc khoi tao")
+            return
+
+        if len(parts) < 2:
+            b.list_status()
+            return
+
+        sub = parts[1].lower()
+        if sub == 'on':
+            if not b.do_boss:
+                b.toggle_do_boss()
+        elif sub == 'off':
+            b.do_boss = False
+            b.gim_boss = False
+            b.tele_boss = False
+            b.attack_boss = False
+            log.info("BOSS", "Da tat tat ca chuc nang Boss")
+        elif sub == 'do':
+            b.toggle_do_boss()
+        elif sub == 'gim':
+            b.toggle_gim_boss()
+        elif sub == 'tele':
+            b.toggle_tele_boss()
+        elif sub == 'attack':
+            b.toggle_attack_boss()
+        elif sub == 'list':
+            b.list_status()
+        elif sub == 'add' and len(parts) >= 3:
+            name = ' '.join(parts[2:])
+            b.add_target(name)
+        elif sub == 'remove' and len(parts) >= 3:
+            name = ' '.join(parts[2:])
+            b.remove_target(name)
+        elif sub == 'clear':
+            b.clear_targets()
+        else:
+            log.raw("Usage: /autoboss [on|off|do|gim|tele|attack|list|add <name>|remove <name>|clear]")
+
+    # ====================================================================
+    # MOBS DISPLAY
+    # ====================================================================
+
+    def _show_mobs(self):
+        mobs = self.client.state.mobs
+        if not mobs:
+            log.raw("[Mobs] Khong co quai nao hoac chua co du lieu")
+            return
+        log.raw(f"[Mobs] {len(mobs)} quai tren map:")
+        for m in mobs:
+            tid = m.get('templateId', -1)
+            mid = m.get('id', -1)
+            hp = m.get('hp', 0)
+            maxhp = m.get('maxHp', 0)
+            status = m.get('status', 0)
+            x = m.get('x', 0)
+            y = m.get('y', 0)
+            status_name = {0: "chet", 1: "chetBay", 2: "dung", 3: "tanCong", 4: "dungBay", 5: "di", 6: "roi", 7: "biDanh"}
+            st = status_name.get(status, str(status))
+            log.raw(f"  [{mid}] Template={tid} HP={hp}/{maxhp} ({st}) at ({x},{y})")
 
     def _chat(self, text: str):
         if self.client.state.in_game:
@@ -314,73 +666,55 @@ class ConsoleUI:
     # ====================================================================
 
     def _show_item_detail(self, parts):
-        """Show detailed info for a specific bag item by index."""
         index = int(parts[1])
         s = self.client.state
         items = s.items_bag
-
         if not items:
-            log.raw("[Item] Chưa có dữ liệu hành trang. Dùng /items để load.")
+            log.raw("[Item] Chua co du lieu hanh trang. Dung /items de load.")
             return
-
         if index < 0 or index >= len(items):
-            log.raw(f"[Item] Index {index} không hợp lệ. Hành trang có {len(items)} ô.")
+            log.raw(f"[Item] Index {index} khong hop le. Hanh trang co {len(items)} o.")
             return
-
         item = items[index]
         if item is None:
-            log.raw(f"[Item] Ô {index} trống.")
+            log.raw(f"[Item] O {index} trong.")
             return
-
         detail = format_item_detail(item, index=index, location="bag")
-        log.raw(f"[Item] Chi tiết:")
+        log.raw("[Item] Chi tiet:")
         for line in detail.split("\n"):
             log.raw(line)
 
     def _find_item(self, parts):
-        """Find items by template ID across bag/body/box."""
         item_id = int(parts[1])
         s = self.client.state
-
         result = find_item_by_id(s, item_id)
         name = item_name(item_id)
-
         if not result['found']:
-            log.raw(f"[Find] Không tìm thấy {name} (ID={item_id}) trong balo/body/rương.")
+            log.raw(f"[Find] Khong tim thay {name} (ID={item_id}) trong balo/body/ruong.")
             return
-
-        log.raw(f"[Find] {name} (ID={item_id}): tìm thấy {len(result['items'])} cái")
+        log.raw(f"[Find] {name} (ID={item_id}): tim thay {len(result['items'])} cai")
         for entry in result['items']:
             loc = entry['location']
             idx = entry['index']
             item = entry['item']
             short = format_item_short(item, index=idx)
             log.raw(f"  [{loc.upper()}] {short}")
-
-        log.raw(f"  Dùng /item {result['items'][0]['index']} để xem chi tiết (nếu ở bag)")
+        log.raw(f"  Dung /item {result['items'][0]['index']} de xem chi tiet (neu o bag)")
 
     def _quick_use_item(self, parts):
-        """Quick use an item from bag by index.
-        /useitem <index>  - use item from bag at index
-        """
         index = int(parts[1])
         s = self.client.state
         items = s.items_bag
-
         if not items or index < 0 or index >= len(items):
-            log.raw(f"[Use] Index {index} không hợp lệ.")
+            log.raw(f"[Use] Index {index} khong hop le.")
             return
-
         item = items[index]
         if item is None:
-            log.raw(f"[Use] Ô {index} trống.")
+            log.raw(f"[Use] O {index} trong.")
             return
-
         item_id = item['id']
         name = item_name(item_id)
-        log.raw(f"[Use] Dùng {name} (ID={item_id}) từ bag slot {index}...")
-
-        # type=0 (normal use), where=1 (bag), index=the bag index
+        log.raw(f"[Use] Dung {name} (ID={item_id}) tu bag slot {index}...")
         self.client.service.useItem(0, 1, index)
 
     # ====================================================================
@@ -402,7 +736,7 @@ class ConsoleUI:
             if item:
                 short = format_item_short(item, index=idx)
                 log.raw(f"  {short}")
-        log.raw(f"  Dùng /item <index> để xem chi tiết")
+        log.raw("  Dung /item <index> de xem chi tiet")
 
     def _show_equip(self):
         s = self.client.state
@@ -410,7 +744,7 @@ class ConsoleUI:
         if not items:
             log.raw("[Equip] No data (use /getbody to request)")
             return
-        SLOT_NAMES = ["Áo", "Quần", "Găng", "Giày", "Nhẫn", "Cải trang", "Chí bôi", "Vũ khí", "Liễn", "Ngữ"]
+        SLOT_NAMES = ["Ao", "Quan", "Gang", "Giay", "Nhan", "Cai trang", "Chi boi", "Vu khi", "Lien", "Ngu"]
         log.raw("[Equip] Equipped items:")
         for i, item in enumerate(items):
             slot_name = SLOT_NAMES[i] if i < len(SLOT_NAMES) else f"Slot{i}"
@@ -421,13 +755,11 @@ class ConsoleUI:
                 if detail['star_display']:
                     stars = f"  {detail['star_display']}"
                 log.raw(f"  [{slot_name}] {short}{stars}")
-
-                # Show options in compact form
                 if detail['options']:
-                    opts = " | ".join(detail['options'][:5])  # max 5 options per line
+                    opts = " | ".join(detail['options'][:5])
                     log.raw(f"       {opts}")
                     if len(detail['options']) > 5:
-                        log.raw(f"       ... và {len(detail['options'])-5} chỉ số khác")
+                        log.raw(f"       ... va {len(detail['options'])-5} chi so khac")
             else:
                 log.raw(f"  [{slot_name}] (empty)")
 
@@ -444,11 +776,9 @@ class ConsoleUI:
         status_names = {0: "Follow", 1: "Protect", 2: "Attack", 3: "Gohome", 4: "Fusion"}
         st = pet.get('status', 0)
         log.raw(f"  Status: {status_names.get(st, st)}")
-
-        # Pet equipment with star details
         body = pet.get('items_body', [])
         if body:
-            log.raw(f"  Equipment:")
+            log.raw("  Equipment:")
             for i, item in enumerate(body):
                 if item:
                     detail = analyze_item(item)
@@ -464,11 +794,9 @@ class ConsoleUI:
                             log.raw(f"      ...(+{len(detail['options'])-3})")
                 else:
                     log.raw(f"    [{i}] (empty)")
-
-        # Pet skills
         skills = pet.get('skills', [])
         if skills:
-            log.raw(f"  Skills:")
+            log.raw("  Skills:")
             for sk in skills:
                 if sk.get('id') == -1:
                     log.raw(f"    [Locked] {sk.get('locked', '')}")
@@ -489,55 +817,44 @@ class ConsoleUI:
     def _show_xmap_info(self):
         s = self.client.state
         r = s.xmap_runner
-
         from xmap_pathfinder import find_path_with_cost, get_next_link, find_path_bfs
         from xmap_data import get_map_name
-
         me = s.my_char
         power = me.cPower if me else 0
         current_map = s.map_id
-
         if r is None:
-            log.raw("[Xmap] Xmap chưa được khởi tạo. Dùng /xmap <mapId> trước.")
+            log.raw("[Xmap] Xmap chua duoc khoi tao. Dung /xmap <mapId> truoc.")
             return
-
         target_map = r.target_map
         if target_map < 0 or (not r.is_running() and not r.path):
-            log.raw("[Xmap] Xmap chưa chạy hoặc chưa có target. Dùng /xmap <mapId> trước.")
+            log.raw("[Xmap] Xmap chua chay hoac chua co target. Dung /xmap <mapId> truoc.")
             return
-
         recalc_path, astar_cost = find_path_with_cost(current_map, target_map, power=power)
         bfs_path = find_path_bfs(current_map, target_map, power=power)
         bfs_hops = len(bfs_path) - 1 if bfs_path else 0
-
         is_running = r.is_running()
-        header = f"[Xmap] Map hiện tại: {current_map} → Target: {target_map}"
+        header = f"[Xmap] Map hien tai: {current_map} -> Target: {target_map}"
         if is_running:
             header += f"  ({r.status})"
         else:
-            header += "  (đã dừng)"
+            header += "  (da dung)"
         log.raw(header)
-
         if is_running:
-            log.raw(f"  Settings: Capsule={'ON' if r.use_capsule else 'OFF'} | Gà={'ON' if r.eat_chicken else 'OFF'} | Delay={r.map_delay}s")
-
+            log.raw(f"  Settings: Capsule={'ON' if r.use_capsule else 'OFF'} | Ga={'ON' if r.eat_chicken else 'OFF'} | Delay={r.map_delay}s")
         if not recalc_path:
-            log.raw("  (không tìm thấy đường đi)")
+            log.raw("  (khong tim thay duong di)")
             return
-
-        log.raw(f"  Path A*:   {' → '.join(str(m) for m in recalc_path)}")
+        log.raw(f"  Path A*:   {' -> '.join(str(m) for m in recalc_path)}")
         log.raw(f"  Cost A*:   {astar_cost}")
         if bfs_path:
-            log.raw(f"  Path BFS:  {' → '.join(str(m) for m in bfs_path)}")
+            log.raw(f"  Path BFS:  {' -> '.join(str(m) for m in bfs_path)}")
             log.raw(f"  Hops BFS:  {bfs_hops}")
             if recalc_path != bfs_path:
-                log.raw(f"  ⚠ A* chọn đường khác BFS (tối ưu cost, không nhất thiết ngắn nhất)")
-
+                log.raw("  A* chon duong khac BFS (toi uu cost, khong nhat thiet ngan nhat)")
         if is_running and r.path and recalc_path != r.path:
-            log.raw(f"  Path lưu:  {' → '.join(str(m) for m in r.path)} (đã thay đổi do di chuyển)")
-
+            log.raw(f"  Path luu:  {' -> '.join(str(m) for m in r.path)} (da thay doi do di chuyen)")
         log.raw("")
-        log.raw(f"  Các bước di chuyển:")
+        log.raw("  Cac buoc di chuyen:")
         for i in range(len(recalc_path) - 1):
             fm = recalc_path[i]
             to = recalc_path[i + 1]
@@ -545,13 +862,13 @@ class ConsoleUI:
             fm_name = get_map_name(fm) or f"Map {fm}"
             to_name = get_map_name(to) or f"Map {to}"
             if link:
-                mtype = self.MOVE_TYPE_NAMES.get(link.move_type, f"Loại {link.move_type}")
+                mtype = self.MOVE_TYPE_NAMES.get(link.move_type, f"Loai {link.move_type}")
                 cost = self._get_move_cost(link.move_type)
                 detail = self._link_detail(link)
-                log.raw(f"    {i+1}. {fm_name}({fm}) → {to_name}({to})")
-                log.raw(f"       Loại: {mtype} (cost={cost}) {detail}")
+                log.raw(f"    {i+1}. {fm_name}({fm}) -> {to_name}({to})")
+                log.raw(f"       Loai: {mtype} (cost={cost}) {detail}")
             else:
-                log.raw(f"    {i+1}. {fm_name}({fm}) → {to_name}({to}) [KHÔNG CÓ LINK]")
+                log.raw(f"    {i+1}. {fm_name}({fm}) -> {to_name}({to}) [KHONG CO LINK]")
 
     def _get_move_cost(self, move_type: int) -> int:
         from xmap_pathfinder import MOVE_COST
@@ -569,6 +886,6 @@ class ConsoleUI:
         if link.walk_x >= 0 or link.walk_y >= 0:
             parts.append(f"walk=({link.walk_x},{link.walk_y})")
         if link.move_type == 0:
-            side = "trái" if link.wp_pos == -1 else "phải" if link.wp_pos == 1 else "giữa"
+            side = "trai" if link.wp_pos == -1 else "phai" if link.wp_pos == 1 else "giua"
             parts.append(f"waypoint={side}")
         return " | ".join(parts) if parts else ""
