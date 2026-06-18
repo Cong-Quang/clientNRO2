@@ -67,6 +67,8 @@ class ConsoleUI:
         log.raw("  /vutdo on|off        /vutdo add|delete|list|clear")
         log.raw("  /autoboss on|off        /autoboss do|gim|tele|attack")
         log.raw("  /autoboss list           /autoboss add|remove <name>|clear")
+        log.raw("  /autonappa on|off|cycle|list")
+        log.raw("  /bosslog [phut]    /tail")
         log.raw("  /quit\n")
 
     def _input_loop(self):
@@ -79,7 +81,9 @@ class ConsoleUI:
                     auto_tags.append("TRAIN")
                 if s.auto_vutdo and s.auto_vutdo.enabled:
                     auto_tags.append("VUT")
-                if s.auto_boss and (s.auto_boss.do_boss or s.auto_boss.gim_boss or s.auto_boss.tele_boss or s.auto_boss.attack_boss):
+                has_boss_active = s.auto_boss and (s.auto_boss.do_boss or s.auto_boss.gim_boss or s.auto_boss.tele_boss or s.auto_boss.attack_boss)
+                has_boss_in_map = s.boss_tracker and s.boss_tracker.has_boss_in_map()
+                if has_boss_active or has_boss_in_map:
                     auto_tags.append("BOSS")
                 if s.xmap_runner and s.xmap_runner.is_running():
                     st = s.xmap_runner.status
@@ -186,6 +190,18 @@ class ConsoleUI:
             return
         if cmd == '/autoboss':
             self._handle_autoboss(parts)
+            return
+        if cmd == '/autonappa':
+            self._handle_autonappa(parts)
+            return
+        if cmd == '/bosslog':
+            self._handle_bosslog(parts)
+            return
+        if cmd == '/bosssightings':
+            self._handle_bosslog(parts)
+            return
+        if cmd == '/tail':
+            self._handle_tail(parts)
             return
 
         # === XMAP COMMANDS ===
@@ -600,6 +616,110 @@ class ConsoleUI:
             b.clear_targets()
         else:
             log.raw("Usage: /autoboss [on|off|do|gim|tele|attack|list|add <name>|remove <name>|clear]")
+
+    # ====================================================================
+    # AUTO FARM NAPPA
+    # ====================================================================
+
+    def _handle_autonappa(self, parts):
+        """Handle /autonappa [on|off|kuku|daudinh|rambo|cycle|list]"""
+        n = self.client.state.auto_farm_nappa
+        if not n:
+            log.raw("[Nappa] AutoFarmNappa chua duoc khoi tao")
+            return
+
+        if len(parts) < 2:
+            n.list_status()
+            return
+
+        sub = parts[1].lower()
+        if sub == 'on':
+            if not n.enabled:
+                n.start(n.boss_type)
+        elif sub == 'off':
+            if n.enabled:
+                n.stop()
+        elif sub == 'kuku':
+            if n.enabled:
+                n.stop()
+            n.start(0)
+        elif sub == 'daudinh':
+            if n.enabled:
+                n.stop()
+            n.start(1)
+        elif sub == 'rambo':
+            if n.enabled:
+                n.stop()
+            n.start(2)
+        elif sub == 'cycle':
+            n.cycle_type()
+        elif sub == 'list':
+            n.list_status()
+        else:
+            log.raw("Usage: /autonappa [on|off|kuku|daudinh|rambo|cycle|list]")
+
+    # ====================================================================
+    # BOSS TRACKER
+    # ====================================================================
+
+    def _handle_bosslog(self, parts):
+        """Handle /bosslog [phut] - Xem boss da xuat hien"""
+        bt = self.client.state.boss_tracker
+        if not bt:
+            log.raw("[Tracker] BossTracker chua duoc khoi tao")
+            return
+        minutes = 60
+        if len(parts) >= 2:
+            try:
+                minutes = int(parts[1])
+            except ValueError:
+                pass
+        bt.list_sightings(minutes)
+
+    def _handle_tail(self, parts):
+        """
+        Handle /tail - Xem realtime boss tracker log (giong tail -f)
+        
+        Tu dong lam moi moi 3 giay, hien thi boss sightings moi nhat.
+        Nhan Ctrl+C de thoat.
+        """
+        bt = self.client.state.boss_tracker
+        if not bt:
+            log.raw("[Tracker] BossTracker chua duoc khoi tao")
+            return
+        
+        log.raw("[Tail] Boss tracker realtime - nhan Ctrl+C de thoat")
+        log.raw("")
+        
+        last_count = -1
+        try:
+            while self.client.session.isConnected():
+                time.sleep(3.0)
+                
+                sightings = bt.get_sightings()
+                current_count = len(sightings)
+                
+                if current_count != last_count:
+                    log.raw("\n" * 3)
+                    log.raw(f"[Tail] Boss tracker realtime - Ctrl+C de thoat ({current_count} sightings)")
+                    if current_count == 0:
+                        log.raw("  (chua co boss nao duoc ghi nhan)")
+                    else:
+                        now = time.time()
+                        for s in sightings[:10]:
+                            elapsed = now - s['time']
+                            if elapsed < 60:
+                                time_str = f"{int(elapsed)}giay"
+                            elif elapsed < 3600:
+                                time_str = f"{int(elapsed // 60)}p{int(elapsed % 60)}s"
+                            else:
+                                time_str = f"{int(elapsed // 3600)}h{int((elapsed % 3600) // 60)}p"
+                            hp_str = f" HP={s['hp']}" if s['hp'] else ""
+                            log.raw(f"  {s['name']}{hp_str} - {time_str} truoc - Map {s['map_name']}({s['map_id']}) Khu {s['zone_id']} ({s['x']},{s['y']})")
+                    last_count = current_count
+        except KeyboardInterrupt:
+            log.raw("")
+            log.raw("[Tail] Da thoat")
 
     # ====================================================================
     # MOBS DISPLAY

@@ -35,11 +35,15 @@ class GameClient(MessageHandler):
         from auto_skill import AutoSkill
         from auto_pick import AutoPick
         from auto_boss import AutoBoss
+        from auto_farm_nappa import AutoFarmNappa
+        from boss_tracker import BossTracker
         self.state.auto_vutdo = AutoVutDo(self.state, self.service)
         self.state.auto_train = AutoTrain(self.state, self.service)
         self.state.auto_skill = AutoSkill(self.state, self.service)
         self.state.auto_pick = AutoPick(self.state, self.service)
         self.state.auto_boss = AutoBoss(self.state, self.service)
+        self.state.auto_farm_nappa = AutoFarmNappa(self.state, self.service)
+        self.state.boss_tracker = BossTracker(self.state, self.service)
 
         self._dispatcher = self._build_dispatcher()
         self._xmap_updater_running = False
@@ -53,7 +57,6 @@ class GameClient(MessageHandler):
             while self._xmap_updater_running:
                 try:
                     if self.state.xmap_runner and self.state.xmap_runner.is_running():
-                        from logger import log
                         st = self.state.xmap_runner.status
                         log.show_status(st[:50] if st else "xmap...")
                 except Exception:
@@ -78,6 +81,10 @@ class GameClient(MessageHandler):
                         self.state.auto_pick.update()
                     if self.state.auto_boss:
                         self.state.auto_boss.update()
+                    if self.state.auto_farm_nappa:
+                        self.state.auto_farm_nappa.update()
+                    if self.state.boss_tracker:
+                        self.state.boss_tracker.update()
                 except Exception:
                     pass
                 time.sleep(0.5)

@@ -3,7 +3,6 @@ AutoTrain - Tự động train quái
 Dựa trên ModNroPc/Mod.CuongLe/AutoTrainCL.cs và Mod.community/AutoSkill.cs
 """
 import time
-import random
 from logger import log
 from items_data import item_name
 
@@ -199,7 +198,7 @@ class AutoTrain:
 
         # Auto dùng TDKT
         if self.auto_use_tdkt:
-            self._try_use_tdkt()
+            self.try_use_tdkt()
 
         # Auto dùng nho khi stamina thấp
         if me.cStamina <= 5 and now - self._last_grape_time > self._grape_interval:
@@ -284,7 +283,7 @@ class AutoTrain:
                 self.service.useItem(0, 1, i)
                 return
 
-    def _try_use_tdkt(self):
+    def try_use_tdkt(self):
         """Auto use Tự Động Luyện Tập (item 521)."""
         bag = getattr(self.state, 'items_bag', []) or []
         for i, item in enumerate(bag):
@@ -303,7 +302,12 @@ class AutoTrain:
                     return
 
     def _try_change_zone(self, now: float):
-        """Try change zone to one with fewer players."""
+        """
+        Smart zone change: chon khu it nguoi nhat (C#: TryFindAndChangeZone)
+        
+        auto_change_zone (isSpam=False): tim khu co it nguoi nhat, chi doi neu current > target+1
+        spam_change_zone (isSpam=True): tim khu it nguoi, uu tien khu cuoi cung (cosplay)
+        """
         if now - self._last_change_zone_time < self.change_zone_delay:
             return
 
@@ -316,16 +320,79 @@ class AutoTrain:
         if me and self.state.map_id == 21 + me.cgender:
             return
 
-        self._last_change_zone_time = now
+        # Gui request lay data zone moi (giong C#: Service.gI().openUIZone() o dau TryFindAndChangeZone)
         self.service.openUIZone()
-        # Chọn zone ngẫu nhiên từ các zone (server sẽ xử lý)
-        # Đơn giản: gửi request change zone về zone 0 (server tự xử lý)
-        if self.spam_change_zone:
-            # Thử zone random
-            random_zone = random.randint(0, 10)
-            self.service.requestChangeZone(random_zone)
+
+        zones = getattr(self.state, 'zones_data', []) or []
+        if not zones:
+            # Chua co du lieu zone, cho update tiep theo
+            self._last_change_zone_time = now
+            self._log_zone("Dang lay danh sach khu...")
+            return
+
+        current_zone = self.state.zone_id
+        current_num_players = 0
+        for z in zones:
+            if z.get('id') == current_zone:
+                current_num_players = z.get('numPlayer', 0)
+                break
+
+        if not self.spam_change_zone and current_num_players <= 1:
+            self._log_zone(f"Khu {current_zone} chi co {current_num_players} nguoi, bo qua")
+            self._last_change_zone_time = now
+            return
+
+        # Tim khu tot nhat
+        best_zone_id = None
+        min_player = float('inf')
+        is_spam = self.spam_change_zone
+
+        zone_indices = list(range(len(zones)))
+        if is_spam:
+            zone_indices.reverse()  # Cosplay: duyet tu cuoi len
+
+        for i in zone_indices:
+            z = zones[i]
+            z_id = z.get('id')
+            num_p = z.get('numPlayer', 0)
+            max_p = z.get('maxPlayer', 255)
+
+            if z_id == current_zone:
+                continue
+            if num_p >= max_p:
+                continue
+
+            if num_p == 0:
+                best_zone_id = z_id
+                min_player = 0
+                break
+
+            if num_p < min_player:
+                min_player = num_p
+                best_zone_id = z_id
+
+        if best_zone_id is not None:
+            should_change = False
+            if is_spam:
+                should_change = True
+            else:
+                # Chi doi neu khu moi co it nguoi hon dang ke
+                should_change = (min_player + 1 < current_num_players)
+
+            if should_change:
+                self.service.requestChangeZone(best_zone_id)
+                self._last_change_zone_time = now
+                self._log_zone(f"Doi sang khu {best_zone_id} ({int(min_player)} nguoi)")
+            else:
+                self._log_zone(f"Khu {best_zone_id} khong tot hon, bo qua")
+                self._last_change_zone_time = now
         else:
-            self.service.requestChangeZone(0)
+            self._log_zone("Khong tim thay khu phu hop")
+            self._last_change_zone_time = now
+
+    def _log_zone(self, msg: str):
+        """Phat notification doi khu (C#: GameScr.info1.addInfo)"""
+        log.info("ZONE", msg)
 
     def _find_next_mob(self) -> dict | None:
         """Find next mob to attack from current map."""

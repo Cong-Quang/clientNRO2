@@ -29,7 +29,10 @@ class GameState:
         self.auto_skill = None
         self.auto_pick = None
         self.auto_boss = None
+        self.auto_farm_nappa = None
+        self.boss_tracker = None
         self.zone_count = 0
+        self.zones_data: list[dict] = []  # [{id, pt, numPlayer, maxPlayer}, ...]
         self.items_map: list[dict] = []
 
     def add_player(self, pid: int, data: dict):
@@ -50,10 +53,6 @@ class GameState:
         self.players.clear()
         self.mobs.clear()
         self.waypoints = []
-
-    def set_map(self, map_id: int, zone_id: int):
-        self.map_id = map_id
-        self.zone_id = zone_id
 
     def set_map(self, map_id: int, zone_id: int):
         self.map_id = map_id

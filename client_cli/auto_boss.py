@@ -425,3 +425,8 @@ class AutoBoss:
                     x = p.get('x', 0)
                     y = p.get('y', 0)
                     log.raw(f"    {name} HP={hp} tai ({x},{y})")
+        # Hien thi boss tracker sightings gan day
+        bt = getattr(self.state, 'boss_tracker', None)
+        if bt:
+            log.raw("")
+            bt.list_sightings(30)

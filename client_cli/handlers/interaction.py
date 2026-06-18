@@ -182,6 +182,35 @@ class InteractionHandler:
     def handle_open_ui_zone(self, msg: Message):
         count = msg.readByte()
         self.state.zone_count = count
+        # Parse chi tiet zone data (giong C# GameScr.openUIZone)
+        # Packet: byte count, for each: byte id, byte pts, byte numPlayer, byte maxPlayer, byte hasRank[, UTF rankName1, int rank1, UTF rankName2, int rank2]
+        zones = []
+        for i in range(count):
+            zone_id = msg.readByte()
+            pts = msg.readByte()
+            num_player = msg.readByte()
+            max_player = msg.readByte()
+            has_rank = msg.readByte()
+            rank1_name = ""
+            rank1_val = 0
+            rank2_name = ""
+            rank2_val = 0
+            if has_rank == 1:
+                rank1_name = msg.readUTF()
+                rank1_val = msg.readInt()
+                rank2_name = msg.readUTF()
+                rank2_val = msg.readInt()
+            zones.append({
+                'id': zone_id,
+                'pt': pts,
+                'numPlayer': num_player,
+                'maxPlayer': max_player,
+                'rank1Name': rank1_name,
+                'rank1': rank1_val,
+                'rank2Name': rank2_name,
+                'rank2': rank2_val,
+            })
+        self.state.zones_data = zones
         log.info("UI", f"Zone list ({count} zones)")
 
     def handle_open_ui_shop(self, msg: Message):

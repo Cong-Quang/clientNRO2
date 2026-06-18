@@ -1,23 +1,24 @@
 # NRO CLI Client
 
-Python CLI client for NRO (Ngọc Rồng Online) game server. Kết nối qua socket TCP, parse packet theo protocol Java server.
+Python CLI client cho NRO (Ngọc Rồng Online) game server. Kết nối qua socket TCP, parse packet theo protocol Java server. Tích hợp đầy đủ tính năng auto: train quái, nhặt đồ, boss, farm boss Nappa, skill, vứt đồ rác...
 
 ## Yêu cầu
 
 - Python 3.10+
 - Server NRO chạy local tại `127.0.0.1:14445` (mặc định)
+- Không cần thư viện ngoài — chỉ dùng Python standard library
 
 ## Cài đặt & Chạy
 
 ```bash
 cd client_cli
-py main.py
+python main.py
 ```
 
 Mặc định tự động login với `username=1, password=1`. Có thể chỉ định:
 
 ```bash
-py main.py --username admin --password 123456 --host 192.168.1.100 --port 14445
+python main.py --username admin --password 123456 --host 192.168.1.100 --port 14445
 ```
 
 ## Luồng hoạt động
@@ -30,180 +31,233 @@ Sau khi chạy, client tự động:
 4. Nhận danh sách nhân vật → tự động chọn nhân vật đầu tiên
 5. Vào game (gửi `clientOk` + request map/skill/item data)
 6. Hiển thị prompt `> ` sẵn sàng nhận lệnh
+7. Các module auto chạy ngầm trong thread riêng (mỗi 500ms)
+
+## Prompt
+
+Prompt tự động hiển thị trạng thái:
+
+| Prompt | Ý nghĩa |
+|--------|---------|
+| `> ` | Bình thường |
+| `[TRAIN]> ` | Auto Train đang bật |
+| `[VUT]> ` | Auto Vứt Đồ đang bật |
+| `[BOSS]> ` | Boss đang trong map HOẶC auto_boss đang bật |
+| `npc(7)> ` | Đang trong menu NPC |
+| `xmap(Đi map 39)> ` | Xmap đang chạy |
 
 ## Các lệnh
 
 ### Thông tin cơ bản
 
-| Lệnh | Mô tả | Ví dụ |
-|------|-------|-------|
-| `/info` | Thông tin nhân vật + tóm tắt đồ | `/info` |
-| `/map` | Thông tin map hiện tại | `/map` |
-| `/npcs` | Danh sách NPC trong map | `/npcs` |
-| `/players` | Danh sách người chơi trong map | `/players` |
+| Lệnh | Mô tả |
+|------|-------|
+| `/info` | Thông tin nhân vật + tóm tắt |
+| `/map` | Thông tin map + zone hiện tại |
+| `/npcs` | Danh sách NPC trong map |
+| `/players` | Danh sách người chơi trong map |
+| `/mobs` | Danh sách quái trong map (Template ID, HP, vị trí) |
 
-### Di chuyển & Map
+### Di chuyển
 
-| Lệnh | Mô tả | Ví dụ |
-|------|-------|-------|
-| `/move <x> <y>` | Di chuyển tới tọa độ | `/move 100 200` |
-| `/zone <id>` | Chuyển zone | `/zone 0` |
-| `/changemap` | Chuyển map (qua cổng) | `/changemap` |
-| `/heal` | Hồi phục (cây tiềm năng) | `/heal` |
-| `/gocit` | Hồi sinh về làng | `/gocit` |
-| `/wake` | Tỉnh dậy (sau khi chết) | `/wake` |
+| Lệnh | Mô tả |
+|------|-------|
+| `/move <x> <y>` | Di chuyển tới tọa độ |
+| `/zone <id>` | Chuyển zone |
+| `/changemap` | Chuyển map (qua cổng) |
+| `/heal` | Hồi phục (cây tiềm năng) |
+| `/gocit` | Hồi sinh về làng |
+| `/wake` | Tỉnh dậy (sau khi chết) |
+| `/selectmap <n>` | Chọn map trong danh sách teleport |
+
+### Xmap (tự động tìm đường)
+
+| Lệnh | Mô tả |
+|------|-------|
+| `/xmap <mapId>` | Tự động tìm đường đến map (A* pathfinding) |
+| `/xmapstop` | Dừng xmap |
+| `/xmapmenu` | Xem danh sách map theo hành tinh |
+| `/xmapinfo` | Xem thông tin chi tiết đường đi |
+| `/xmapsettings` | Bật/tắt ăn đùi gà / capsule |
 
 ### NPC & Shop
 
-| Lệnh | Mô tả | Ví dụ |
-|------|-------|-------|
-| `/npcmenu <id>` | Mở menu NPC theo template ID | `/npcmenu 7` |
-| `/menu <opt>` hoặc gõ số | Chọn option trong menu NPC | `/menu 0` hoặc `0` |
-| `/buy <t> <id> [qty]` | Mua đồ từ shop (`t=0`:vàng, `1`:ngọc) | `/buy 0 33` |
+| Lệnh | Mô tả |
+|------|-------|
+| `/npcmenu <tempId>` | Mở menu NPC theo template ID |
+| `/menu <opt>` hoặc gõ số | Chọn option trong menu NPC |
+| `/buy <t> <itemId> [qty]` | Mua đồ từ shop (`t=0`: vàng, `1`: ngọc) |
+| `/sale <a> <t> <id>` | Bán item |
 
-Ví dụ mua đồ từ Bunma:
+### Đồ đạc & Item
 
-```
-> /npcmenu 7
-[NPC] Cậu cần trang bị gì cứ đến chỗ tôi nhé
-  [0] Cửa hàng
+| Lệnh | Mô tả |
+|------|-------|
+| `/items` | Xem đồ trong balo |
+| `/equip` | Xem đồ đang mặc |
+| `/pet` | Xem thông tin pet |
+| `/item <index>` | Xem chi tiết item trong balo |
+| `/finditem <templateId>` | Tìm item theo ID trong balo/body/rương |
+| `/useitem <t> <w> <i>` | Dùng/mặc/tháo item |
+| `/pick <itemMapId>` | Nhặt item dưới đất |
+| `/skill <id>` | Chọn skill |
+| `/task <n> <m> [o]` | Tương tác nhiệm vụ |
 
-npc(7)> 0
-[SHOP] type=0 tabs=3
-  [0] Áo Quần (24 items)
-    [33] Áo thun 3 lỗ - Vàng:5000
-    [3] Áo vải dày - Vàng:10000
-    ...
-  [1] Phụ kiện (42 items)
-    [529] Giáp tập luyện cấp 1 - Ngọc:30
-    ...
-```
+**`/useitem <t> <w> <i>`:**
+- `t` (type): `0`=balo, `1`=body, `2`=rương
+- `w` (where): `0`=mặc vào, `1`=sử dụng, `2`=cất
+- `i` (index): số thứ tự slot
 
-Mua áo thun 3 lỗ (ID 33) bằng vàng:
-
-```
-> /buy 0 33
-```
-
-### Đồ đạc & Pet
-
-| Lệnh | Mô tả | Ví dụ |
-|------|-------|-------|
-| `/items` | Xem đồ trong balo (kèm options) | `/items` |
-| `/equip` | Xem đồ đang mặc (từng slot) | `/equip` |
-| `/pet` | Xem thông tin pet (stats, đồ, skill) | `/pet` |
-
-Ví dụ:
-
-```
-> /items
-[Bag] 3 items:
-  [0] [#33] Áo thun 3 lỗ x1
-      +sức đánh 1000
-      +giáp 500
-  [1] [#6] Quần vải đen x1
-      +HP 5000
-```
-
-```
-> /equip
-[Equip] Equipped items:
-  [Áo] [#33] Áo thun 3 lỗ x1
-      +sức đánh 1000
-  [Quần] [#6] Quần vải đen x1
-      +HP 5000
-```
-
-```
-> /pet
-[Pet] Thần Long (Cấp 50)
-  HP: 50000/50000  MP: 10000/10000
-  Damage: 15000  Defense: 2000  Crit: 10%
-  Power: 1000000  Potential: 50000
-  Stamina: 100/100
-  Status: Follow
-  Equipment:
-    [0] [#1234] Đai Thần Long x1
-        +HP 20000
-  Skills:
-    Skill ID: 102
-    Skill ID: 201
-```
-
-### Teleport (Capsule đặc biệt)
-
-Khi dùng item Capsule đặc biệt (ID 194), server gửi danh sách map:
-
-| Lệnh | Mô tả | Ví dụ |
-|------|-------|-------|
-| `/selectmap <n>` | Chọn map trong danh sách teleport | `/selectmap 1` |
-
-Ví dụ:
-
-```
-> /items                     # xem slot của capsule
-[Bag] 3 items:
-  [2] [#194] Viên Capsule đặc biệt x1
-
-> /useitem 0 1 2             # dùng capsule ở slot 2
-[Teleport] Chọn map để dịch chuyển (12 maps):
-  [0] Về nhà
-  [1] Làng Aru
-  [2] Đảo Guru
-  ...
-Dùng /selectmap <số> để chọn
-
-> /selectmap 1               # chọn map Làng Aru
-```
+Ví dụ: `/useitem 0 1 2` = dùng thuốc slot 2 từ balo
 
 ### Chat
 
-| Lệnh | Mô tả | Ví dụ |
-|------|-------|-------|
-| `/chat <text>` | Chat map | `/chat Xin chao` |
-| Gõ text không có `/` | Chat map (tự động) | `Xin chao` |
-
-### Kỹ năng
-
-| Lệnh | Mô tả | Ví dụ |
-|------|-------|-------|
-| `/skill <id>` | Chọn skill | `/skill 101` |
-| `/task <n> <m> [o]` | Tương tác nhiệm vụ | `/task 7 1 0` |
-
-### Item
-
-| Lệnh | Mô tả | Ví dụ |
-|------|-------|-------|
-| `/pick <id>` | Nhặt item dưới đất (id = item map id) | `/pick 5` |
-| `/useitem <t> <w> <i>` | Dùng item (xem giải thích bên dưới) | `/useitem 0 1 2` |
-| `/sale <a> <t> <id>` | Bán item (`a`=action, `t`=0:balo/1:body, `id`=itemId) | `/sale 0 0 33` |
-
-**`/useitem <t> <w> <i>` - Giải thích tham số:**
-- `t` (type): `0`=balo, `1`=body (đồ đang mặc), `2`=rương
-- `w` (where/tab): `0`=mặc vào (bag→body), `1`=sử dụng, `2`=cất (body→bag)
-- `i` (index): số thứ tự slot (0, 1, 2, ...) trong danh sách
-
-Ví dụ:
-- Mặc áo slot 0 từ balo: `/useitem 0 0 0`
-- Dùng thuốc slot 2 từ balo: `/useitem 0 1 2`
-- Cởi áo đang mặc slot 0 (về balo): `/useitem 1 2 0`
-
-### Khác
-
-| Lệnh | Mô tả | Ví dụ |
-|------|-------|-------|
-| `/quit` | Thoát | `/quit` |
-| `/help` | In help | `/help` |
+| Lệnh | Mô tả |
+|------|-------|
+| `/chat <text>` | Chat map |
+| Gõ text không có `/` | Chat map (tự động) |
 
 ### Log
 
-| Lệnh | Mô tả | Ví dụ |
-|------|-------|-------|
-| `/log list` | Xem trạng thái log các category | `/log list` |
-| `/log <cat> on` | Bật log category | `/log network on` |
-| `/log <cat> off` | Tắt log category | `/log network off` |
-| `/log <cat> debug` | Bật debug log | `/log network debug` |
-| `/log all off` | Tắt hết log | `/log all off` |
+| Lệnh | Mô tả |
+|------|-------|
+| `/log list` | Xem trạng thái log |
+| `/log <cat> on\|off\|debug` | Bật/tắt log category |
+| `/log all off` | Tắt hết log |
+
+## Auto Modules
+
+### Auto Train (`/autotrain`)
+
+Tự động tìm quái, di chuyển đến và tấn công.
+
+```
+/autotrain on|off                  # Bật/tắt auto train
+/autotrain hpabove <n>             # Chỉ đánh quái HP trên n
+/autotrain hpbelow <n>             # Chỉ đánh quái HP dưới n
+/autotrain minmp <n>               # Về nhà khi MP dưới n%
+/trainmob add <templateId>         # Thêm quái cần train
+/trainmob all                      # Thêm tất cả quái trên map
+/trainmob list                     # Xem danh sách quái
+/trainmob clear                    # Xóa danh sách
+/goback on|off|coord               # Tự động về nhà khi hết MP/HP
+/autozone on|off|spam              # Tự động đổi khu (thông minh: chọn ít người)
+```
+
+**Smart Zone Change:** `/autozone on` quét danh sách khu từ server, chọn khu ít người nhất. `spam` chọn khu cuối còn chỗ.
+
+### Auto Pick (`/autopick`)
+
+Tự động nhặt đồ trên map.
+
+```
+/autopick on|off                   # Bật/tắt
+/autopick all                      # Nhặt tất cả (kể cả đồ người khác)
+/autopick by_list                  # Nhặt theo danh sách
+/autopick add <templateId>         # Thêm item vào danh sách
+/autopick delete <templateId>      # Xóa item khỏi danh sách
+/autopick clear                    # Xóa toàn bộ danh sách
+/autopick distance <n>             # Khoảng cách nhặt (px)
+/autopick teleport                 # Dịch chuyển đến item
+/autopick list                     # Xem trạng thái
+/picklist                          # Xem danh sách item
+```
+
+### Auto Boss (`/autoboss`)
+
+Tự động tìm, teleport và tấn công boss.
+
+```
+/autoboss on|off                   # Bật/tắt tất cả
+/autoboss do                       # Dò boss (quét từng khu để tìm)
+/autoboss gim                      # Gim boss (focus HP thấp nhất)
+/autoboss tele                     # Teleport đến boss
+/autoboss attack                   # Tấn công boss (tự bật tele)
+/autoboss list                     # Xem trạng thái + boss + tracker sightings
+/autoboss add <name>               # Chỉ tìm boss tên X
+/autoboss remove <name>            # Bỏ boss khỏi danh sách
+/autoboss clear                    # Tìm tất cả boss
+```
+
+`/autoboss list` hiển thị:
+- Trạng thái ON/OFF các chức năng do/gim/tele/attack
+- Danh sách target names
+- Boss đang có trong map (tên, HP, tọa độ)
+- Boss tracker sightings 30 phút gần đây (tích hợp từ BossTracker)
+
+**Nhận diện boss:** Tên viết hoa chữ cái đầu, không phải pet/trọng tài/#/$.
+
+### Auto Farm Boss Nappa (`/autonappa`)
+
+Tự động farm boss Nappa (state machine 11 bước).
+
+```
+/autonappa on|off                  # Bật/tắt farm
+/autonappa kuku                    # Farm Kuku (map 68-72)
+/autonappa daudinh                 # Farm Mập đầu đinh (map 64-67)
+/autonappa rambo                   # Farm Rambo (map 73-77)
+/autonappa cycle                   # Chuyển loại boss 0→1→2→0
+/autonappa list                    # Xem trạng thái + tracker sightings
+```
+
+`/autonappa list` hiển thị trạng thái farm + boss tracker sightings 30 phút gần đây.
+
+**Tính năng:**
+- Quét từng khu trên map, phát hiện boss qua danh sách player
+- Tự động gim/tele/attack boss
+- Phát hiện boss ảo (timeout 10s không damage → skip)
+- Nhặt Mảnh Thiên Sứ (ID=1070) sau khi boss chết
+- Xử lý chết: tự hồi sinh + quay lại map
+- Xử lý lạc map: tự động quay lại map boss
+- Notification qua tag `[NAPPA]`
+
+### Auto Skill (`/autoskill`)
+
+Cấu hình auto sử dụng kỹ năng.
+
+```
+/autoskill attack                  # Auto tấn công (khi có mob focus)
+/autoskill list                    # Xem danh sách 10 slot
+/autoskill shield                  # Tự động dùng khiên
+/autoskill <slot> on|off           # Bật/tắt auto skill slot
+/autoskill <slot> delay <ms>       # Set delay (ms) cho slot
+/autoskill <slot> freeze           # Freeze/unfreeze (cooldown = 0)
+/autoskill <slot> set <id> [name]  # Cấu hình skill ID cho slot
+/autoskill all                     # Toggle tất cả slot
+```
+
+### Auto Vứt Đồ (`/vutdo`)
+
+Tự động vứt đồ rác trong balo.
+
+```
+/vutdo on|off                      # Bật/tắt
+/vutdo add <id1> <id2> ...         # Thêm ID item cần vứt
+/vutdo delete <id1> <id2> ...      # Xóa ID item
+/vutdo list                        # Xem danh sách
+/vutdo clear                       # Xóa toàn bộ
+```
+
+### Boss Tracker (`/bosslog`)
+
+Theo dõi boss xuất hiện (chạy ngầm, không cần bật auto_boss).
+
+```
+/bosslog [phút]                    # Xem boss đã xuất hiện
+/tail                              # Xem realtime boss tracker (Ctrl+C để thoát)
+```
+
+**`/bosslog`:** Xem boss sightings trong khoảng thời gian (mặc định 60 phút).
+```
+[Tracker] Boss xuat hien trong 60 phut qua (3 lan):
+  Broly HP=50000 - 5 phut 23 giay - Map 68 Khu 3 (1200,384)
+  Kuku HP=30000 - 12 phut 8 giay - Map 70 Khu 5 (800,240)
+```
+
+**`/tail`:** Chế độ realtime (giống `tail -f` trên Linux):
+- Tự động refresh mỗi 3 giây, chỉ in khi có sightings mới
+- Hiển thị 10 sightings gần nhất
+- Nhấn `Ctrl+C` để thoát
 
 ## Cấu trúc thư mục
 
@@ -213,88 +267,105 @@ client_cli/
 ├── client.py                  # GameClient - kết nối các module
 ├── cmd.py                     # Command constants
 ├── network.py                 # Socket + Message (đọc/ghi packet)
-├── service.py                 # Service - gửi packet theo nghiệp vụ
+├── service.py                 # Service - gửi packet
 ├── state.py                   # GameState - trạng thái runtime
 ├── ui.py                      # ConsoleUI - vòng lặp nhập lệnh
-├── logger.py                  # Logging framework
+├── logger.py                  # Logging framework (màu, level)
 ├── Char.py                    # Character data model
+├── handler.py                 # Abstract message handler
+
+├── auto_boss.py               # Auto tìm/gim/tele/attack boss
+├── auto_pick.py               # Auto nhặt đồ
+├── auto_skill.py              # Auto kỹ năng
+├── auto_train.py              # Auto train quái
+├── auto_vutdo.py              # Auto vứt đồ rác
+├── auto_farm_nappa.py         # Auto farm boss Nappa
+├── boss_tracker.py            # Theo dõi boss xuất hiện
+
+├── xmap_data.py               # Graph map + navigation data
+├── xmap_pathfinder.py         # A* pathfinding
+├── xmap_runner.py             # Xmap runner state machine
+
+├── items_data.py              # Item template ID → tên (2000+)
+├── item_detail.py             # Phân tích item options/upgrade/sao
+├── item_option_data.py        # Option template names
 ├── npcs_data.py               # NPC template ID → tên
-├── items_data.py              # Item template ID → tên (2000+ items)
-├── memory.md                  # Project memory
-├── README.md                  # File này
-├── .gitignore
+
 ├── handlers/
-│   ├── __init__.py
+│   ├── __init__.py            # Module exports
 │   ├── connection.py          # Xử lý kết nối
 │   ├── authentication.py      # Xử lý login
 │   ├── world.py               # Xử lý map, player, mob
 │   ├── interaction.py         # Xử lý NPC, shop, item
 │   ├── communication.py       # Xử lý chat, dialog
-│   └── social.py              # Xử lý bạn bè, party, trade, pet
-└── __pycache__/               # Tự động xóa khi thoát
+│   └── social.py              # Xử lý bạn bè, party, pet
+
+├── README.md                  # File này
+└── requirements.txt           # Không cần thư viện ngoài
 ```
 
 ## Protocol
 
-Client kết nối tới Java server NRO qua TCP socket.
+Client kết nối tới Java server NRO qua TCP socket. Dùng mã hóa XOR key sau khi nhận session key từ server.
+
+### Packet format
+
+```
+[byte cmd][short length][data...]
+hoặc [byte cmd][3-byte length][data...] (cho cmd đặc biệt)
+```
+
+Sau khi nhận key: mỗi byte được XOR với key ring.
 
 ### Login flow
 
 ```
 Client → Server:
-  Message(CMD_NOT_LOGIN=227) + msg.writeByte(CMD_CLIENT_INFO=2) → setClientType
-  Message(CMD_NOT_LOGIN=227) + msg.writeByte(CMD_LOGIN=0) → login
+  GET_SESSION_ID(-27)                     → nhận key
+  NOT_LOGIN(227) + CMD_CLIENT_INFO(2)     → set client type
+  NOT_LOGIN(227) + CMD_LOGIN(0)           → login
 
 Server → Client:
-  Message(CMD_NOT_LOGIN=227) + msg.writeByte(response) → login response
-  Message(CMD_NOT_MAP=228) → vào game (enter game screen)
+  NOT_LOGIN(227) + byte(response)         → login response
+  NOT_MAP(228)                            → vào game screen
 
 Client → Server:
-  Message(CMD_NOT_MAP=228) + msg.writeByte(CMD_SELECT_PLAYER=1) → chọn nhân vật
+  NOT_MAP(228) + CMD_SELECT_PLAYER(1)     → chọn nhân vật
 
 Server → Client:
-  Message(CMD_ME_LOAD_POINT=214) → thông tin nhân vật trong map
-  Message(CMD_PLAYER_ADD=251) → các player khác trong map
-  Message(CMD_SUB_COMMAND=226) + sub=0 → full data (body, bag, box items)
-
-Client → Server:
-  clientOk() + updateMap() + updateSkill() + updateItem() → hoàn tất vào game
+  ME_LOAD_POINT(214)                      → stats nhân vật
+  PLAYER_ADD(251)                         → các player khác
+  SUB_COMMAND(226) + sub=0                → full data (items)
 ```
 
 ### Shop packet
 
-Server gửi `Message(CMD_SHOP=212)` khi mở shop:
-
 ```
-byte: shopType (0=vàng/ngọc, 1=tiềm năng, 3=đặc biệt, 8=mua lại)
-byte: tabCount
-for each tab:
-  UTF: tabName
-  byte: itemCount
-  for each item:
-    short: itemTemplateId
-    [pricing theo shopType]
-    byte: optionCount
-    for each option:
-      byte: optionTemplateId
-      short: param
-    byte: isNew
-    byte: hasPart
-    if hasPart:
-      short: head, body, leg, bag
+Message(SHOP=212):
+  byte: shopType (0=vàng/ngọc, 3=đặc biệt, 8=mua lại)
+  byte: tabCount
+  for each tab:
+    UTF: tabName
+    byte: itemCount
+    for each item:
+      short: itemTemplateId
+      [pricing theo shopType]
+      byte: optionCount
+      for each option: byte id, short param
+      byte: isNew
+      byte: hasPart (short head/body/leg/bag)
 ```
 
-## NPC Template IDs phổ biến
+### Zone packet
 
-| ID | Tên | Chức năng |
-|----|-----|-----------|
-| 0 | Ông Gôhan | Thu mua, nhiệm vụ |
-| 4 | Đậu thần | Hồi phục |
-| 7 | Bunma | Shop đồ Trái Đất |
-| 8 | Dende | Chữa lành, hồi sinh |
-| 10 | Dr. Brief | Nâng cấp đồ |
-| 11 | Cargo | Tàu vũ trụ (chuyển map) |
-| 13 | Quy Lão Kame | Học skill, nhiệm vụ |
-| 18 | Thần mèo Karin | Nhiệm vụ |
-| 24 | Rồng Thiêng | Cầu rồng |
-| 37 | Bunma (bản sao) | Shop đồ |
+```
+Message(OPEN_UI_ZONE=29):
+  byte: count
+  for each zone:
+    byte: zoneId
+    byte: pts
+    byte: numPlayer
+    byte: maxPlayer
+    byte: hasRank
+    [if hasRank: UTF rankName1, int rank1, UTF rankName2, int rank2]
+```
