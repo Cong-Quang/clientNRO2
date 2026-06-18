@@ -161,8 +161,6 @@ class SocialHandler:
         log.raw("Dùng /selectmap <số> để chọn")
 
     def handle_item_time(self, msg: Message):
-        if msg.available() < 1:
-            return
         id_ = msg.readByte()
         text = msg.readUTF() if msg.available() > 2 else ''
         time_ = msg.readShort() if msg.available() >= 2 else 0

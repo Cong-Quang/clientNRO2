@@ -237,11 +237,16 @@ class GameClient(MessageHandler):
 
     def onMessage(self, msg: Message):
         cmd = msg.command
+        # General guard: skip empty packets
+        if msg.available() < 1:
+            log.debug("NETWORK", f"cmd={cmd} empty packet, skipped")
+            return
         handler = self._dispatcher.get(cmd)
         if handler:
             try:
                 handler(msg)
             except Exception as e:
-                log.error("NETWORK", f"cmd={cmd}: {e}")
+                # Non-fatal: server sometimes sends partial packets (e.g. cmd=220)
+                log.warn("NETWORK", f"cmd={cmd}: {e}")
         else:
             log.debug("NETWORK", f"cmd={cmd} size={msg.available()}")

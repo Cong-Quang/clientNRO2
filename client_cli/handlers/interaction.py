@@ -150,28 +150,37 @@ class InteractionHandler:
     def handle_body(self, msg: Message):
         action = msg.readByte()
         if action == 0:
-            head = msg.readShort()
-            count = msg.readUnsignedByte()
-            self.state.items_body = self._parse_items(msg, count)
-            log.info("BODY", f"Loaded {count} body items, head={head}")
+            try:
+                head = msg.readShort()
+                count = msg.readUnsignedByte()
+                self.state.items_body = self._parse_items(msg, count)
+                log.info("BODY", f"Loaded {count} body items, head={head}")
+            except Exception:
+                log.info("BODY", "Incomplete data, skipped")
         else:
             log.info("BODY", f"action={action}")
 
     def handle_bag(self, msg: Message):
         action = msg.readByte()
         if action == 0:
-            count = msg.readUnsignedByte()
-            self.state.items_bag = self._parse_items(msg, count)
-            log.info("BAG", f"Loaded {count} bag items")
+            try:
+                count = msg.readUnsignedByte()
+                self.state.items_bag = self._parse_items(msg, count)
+                log.info("BAG", f"Loaded {count} bag items")
+            except Exception:
+                log.info("BAG", "Incomplete data, skipped")
         else:
             log.info("BAG", f"action={action}")
 
     def handle_box(self, msg: Message):
         action = msg.readByte()
         if action == 0:
-            count = msg.readUnsignedByte()
-            self.state.items_box = self._parse_items(msg, count)
-            log.info("BOX", f"Loaded {count} box items")
+            try:
+                count = msg.readUnsignedByte()
+                self.state.items_box = self._parse_items(msg, count)
+                log.info("BOX", f"Loaded {count} box items")
+            except Exception:
+                log.info("BOX", "Incomplete data, skipped")
         else:
             log.info("BOX", f"action={action}")
 

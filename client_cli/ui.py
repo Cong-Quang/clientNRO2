@@ -593,6 +593,51 @@ class ConsoleUI:
         p.list_items()
 
     # ====================================================================
+    # AUTO VUT DO
+    # ====================================================================
+
+    def _handle_vutdo(self, parts):
+        """Handle /vutdo [on|off|add <id1> <id2> ...|delete <id1> <id2> ...|list|clear]"""
+        v = self.client.state.auto_vutdo
+        if not v:
+            log.raw("[VutDo] AutoVutDo chua duoc khoi tao")
+            return
+
+        if len(parts) < 2:
+            v.toggle()
+            return
+
+        sub = parts[1].lower()
+        if sub == 'on':
+            if not v.enabled:
+                v.toggle()
+        elif sub == 'off':
+            if v.enabled:
+                v.toggle()
+        elif sub == 'add' and len(parts) >= 3:
+            ids = []
+            for p in parts[2:]:
+                try:
+                    ids.append(int(p))
+                except ValueError:
+                    pass
+            v.add_ids(ids)
+        elif sub == 'delete' and len(parts) >= 3:
+            ids = []
+            for p in parts[2:]:
+                try:
+                    ids.append(int(p))
+                except ValueError:
+                    pass
+            v.remove_ids(ids)
+        elif sub == 'list':
+            v.list_items()
+        elif sub == 'clear':
+            v.clear()
+        else:
+            log.raw("Usage: /vutdo [on|off|add <id1> <id2> ...|delete <id1> <id2> ...|list|clear]")
+
+    # ====================================================================
     # AUTO BOSS
     # ====================================================================
 

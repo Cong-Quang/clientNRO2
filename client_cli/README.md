@@ -1,6 +1,6 @@
 # NRO CLI Client
 
-Python CLI client cho NRO (Ngọc Rồng Online) game server. Kết nối qua socket TCP, parse packet theo protocol Java server. Tích hợp đầy đủ tính năng auto: train quái, nhặt đồ, boss, farm boss Nappa, skill, vứt đồ rác...
+Python CLI client cho NRO (Ngọc Rồng Online) game server. Kết nối qua socket TCP, parse packet theo protocol Java server. Tích hợp đầy đủ tính năng auto: train quái, nhặt đồ, boss, farm boss Nappa, skill, vứt đồ rác, boss tracker, xmap (tự động tìm đường A*).
 
 ## Yêu cầu
 
@@ -15,11 +15,41 @@ cd client_cli
 python main.py
 ```
 
-Mặc định tự động login với `username=1, password=1`. Có thể chỉ định:
+Mặc định tự động login với `username=1, password=1`.
+
+## CLI Arguments
 
 ```bash
+python main.py --help
+
+# Thông số kết nối
 python main.py --username admin --password 123456 --host 192.168.1.100 --port 14445
+python main.py --login 1 1                                          # Shortcut đăng nhập
+
+# Thực thi nhanh 1 hoặc nhiều lệnh (--exit để tự thoát)
+python main.py -c "/map" -c "/info" --exit
+python main.py --login 1 1 -c "/items" -c "/equip" --exit
+
+# Hiện log console để debug
+python main.py --show-log
+python main.py --show-log -c "/autoboss list" --exit
+
+# Unknown args tự động chuyển thành lệnh
+python main.py --map --info --exit                                   # Tương đương -c "/map" -c "/info"
 ```
+
+### Chi tiết arguments
+
+| Argument | Mô tả |
+|----------|-------|
+| `--host HOST` | Server host (default: `127.0.0.1`) |
+| `--port PORT` | Server port (default: `14445`) |
+| `-u, --username` | Tài khoản (default: `1`) |
+| `-p, --password` | Mật khẩu (default: `1`) |
+| `--login USER PASS` | Đăng nhập nhanh |
+| `-c, --cmd CMD` | Lệnh cần thực thi (dùng nhiều `-c`) |
+| `--show-log, --log` | Hiển thị log ra console |
+| `--exit, --quit` | Tự động thoát sau khi chạy `-c` |
 
 ## Luồng hoạt động
 
@@ -30,8 +60,9 @@ Sau khi chạy, client tự động:
 3. Login với username/password
 4. Nhận danh sách nhân vật → tự động chọn nhân vật đầu tiên
 5. Vào game (gửi `clientOk` + request map/skill/item data)
-6. Hiển thị prompt `> ` sẵn sàng nhận lệnh
-7. Các module auto chạy ngầm trong thread riêng (mỗi 500ms)
+6. Nếu có `-c`: thực thi lệnh, nếu có `--exit` thì thoát
+7. Nếu không: hiển thị prompt `> ` sẵn sàng nhận lệnh
+8. Các module auto chạy ngầm trong thread riêng (mỗi 500ms)
 
 ## Prompt
 
@@ -70,7 +101,7 @@ Prompt tự động hiển thị trạng thái:
 | `/wake` | Tỉnh dậy (sau khi chết) |
 | `/selectmap <n>` | Chọn map trong danh sách teleport |
 
-### Xmap (tự động tìm đường)
+### Xmap (tự động tìm đường A*)
 
 | Lệnh | Mô tả |
 |------|-------|
@@ -93,9 +124,9 @@ Prompt tự động hiển thị trạng thái:
 
 | Lệnh | Mô tả |
 |------|-------|
-| `/items` | Xem đồ trong balo |
-| `/equip` | Xem đồ đang mặc |
-| `/pet` | Xem thông tin pet |
+| `/items` | Xem đồ trong balo (kèm options, sao, upgrade) |
+| `/equip` | Xem đồ đang mặc (từng slot) |
+| `/pet` | Xem thông tin pet (stats, đồ, skill) |
 | `/item <index>` | Xem chi tiết item trong balo |
 | `/finditem <templateId>` | Tìm item theo ID trong balo/body/rương |
 | `/useitem <t> <w> <i>` | Dùng/mặc/tháo item |
@@ -116,6 +147,8 @@ Ví dụ: `/useitem 0 1 2` = dùng thuốc slot 2 từ balo
 |------|-------|
 | `/chat <text>` | Chat map |
 | Gõ text không có `/` | Chat map (tự động) |
+
+Khi có NPC menu và gõ số → chọn option.
 
 ### Log
 
@@ -183,7 +216,7 @@ Tự động tìm, teleport và tấn công boss.
 - Trạng thái ON/OFF các chức năng do/gim/tele/attack
 - Danh sách target names
 - Boss đang có trong map (tên, HP, tọa độ)
-- Boss tracker sightings 30 phút gần đây (tích hợp từ BossTracker)
+- Boss tracker sightings 30 phút gần đây
 
 **Nhận diện boss:** Tên viết hoa chữ cái đầu, không phải pet/trọng tài/#/$.
 
@@ -200,8 +233,6 @@ Tự động farm boss Nappa (state machine 11 bước).
 /autonappa list                    # Xem trạng thái + tracker sightings
 ```
 
-`/autonappa list` hiển thị trạng thái farm + boss tracker sightings 30 phút gần đây.
-
 **Tính năng:**
 - Quét từng khu trên map, phát hiện boss qua danh sách player
 - Tự động gim/tele/attack boss
@@ -209,7 +240,6 @@ Tự động farm boss Nappa (state machine 11 bước).
 - Nhặt Mảnh Thiên Sứ (ID=1070) sau khi boss chết
 - Xử lý chết: tự hồi sinh + quay lại map
 - Xử lý lạc map: tự động quay lại map boss
-- Notification qua tag `[NAPPA]`
 
 ### Auto Skill (`/autoskill`)
 
@@ -254,7 +284,7 @@ Theo dõi boss xuất hiện (chạy ngầm, không cần bật auto_boss).
   Kuku HP=30000 - 12 phut 8 giay - Map 70 Khu 5 (800,240)
 ```
 
-**`/tail`:** Chế độ realtime (giống `tail -f` trên Linux):
+**`/tail`:** Chế độ realtime (giống `tail -f`):
 - Tự động refresh mỗi 3 giây, chỉ in khi có sightings mới
 - Hiển thị 10 sightings gần nhất
 - Nhấn `Ctrl+C` để thoát
@@ -263,7 +293,7 @@ Theo dõi boss xuất hiện (chạy ngầm, không cần bật auto_boss).
 
 ```
 client_cli/
-├── main.py                    # Entry point
+├── main.py                    # Entry point (có CLI args)
 ├── client.py                  # GameClient - kết nối các module
 ├── cmd.py                     # Command constants
 ├── network.py                 # Socket + Message (đọc/ghi packet)
@@ -301,6 +331,7 @@ client_cli/
 │   └── social.py              # Xử lý bạn bè, party, pet
 
 ├── README.md                  # File này
+├── tester.md                  # Test checklist
 └── requirements.txt           # Không cần thư viện ngoài
 ```
 
